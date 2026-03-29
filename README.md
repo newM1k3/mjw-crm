@@ -1,0 +1,1 @@
+# mjw-crm\n\nMJW Design CRM Dashboard - Client relationship management system.\n\nPart of the MJW Platform consolidation.\n
