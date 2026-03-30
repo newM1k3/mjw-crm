@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Users, Phone, Calendar, Settings, Tags, Mail, X, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, Phone, Calendar, Settings, Tags, Mail, X, LogOut, FileText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface SidebarProps {
@@ -15,6 +15,7 @@ const navigationItems = [
   { id: 'contacts', label: 'Contacts', icon: Phone },
   { id: 'calendar', label: 'Calendar', icon: Calendar },
   { id: 'emails', label: 'Emails', icon: Mail },
+  { id: 'invoices', label: 'Invoices', icon: FileText },
   { id: 'tags', label: 'Tags', icon: Tags },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

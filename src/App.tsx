@@ -10,6 +10,7 @@ import ContactsPage from './components/ContactsPage';
 import CalendarPage from './components/CalendarPage';
 import EmailsPage from './components/EmailsPage';
 import TagsPage from './components/TagsPage';
+import InvoicesPage from './components/InvoicesPage';
 import SettingsPage from './components/SettingsPage';
 import AuthPage from './components/AuthPage';
 import ResetPasswordPage from './components/ResetPasswordPage';
@@ -130,6 +131,8 @@ function App() {
         return <CalendarPage />;
       case 'emails':
         return <EmailsPage initialComposeTo={pendingComposeEmail} onComposeClear={() => setPendingComposeEmail(null)} />;
+      case 'invoices':
+        return <InvoicesPage />;
       case 'tags':
         return <TagsPage />;
       case 'settings':
