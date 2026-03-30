@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, FileText, CreditCard as Edit2, Check } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { pb } from '../../lib/pocketbase';
 import { useAuth } from '../../contexts/AuthContext';
 import RichTextEditor from './RichTextEditor';
 
@@ -35,7 +35,7 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
   const fetchTemplates = async () => {
     if (!user) return;
     setLoading(true);
-    const { data } = await supabase
+    const { data } = await pb
       .from('email_templates')
       .select('*')
       .eq('user_id', user.id)
@@ -64,7 +64,7 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
     const payload = { ...form, plain_content: plainFromHtml, updated_at: new Date().toISOString() };
 
     if (view === 'edit' && editing) {
-      const { data } = await supabase
+      const { data } = await pb
         .from('email_templates')
         .update(payload)
         .eq('id', editing.id)
@@ -72,11 +72,8 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
         .single();
       if (data) setTemplates(prev => prev.map(t => t.id === editing.id ? data as EmailTemplate : t));
     } else {
-      const { data } = await supabase
-        .from('email_templates')
-        .insert([{ ...payload, user_id: user.id }])
-        .select()
-        .single();
+      const data = await pb.collection('email_templates').create({ ...payload, user_id: user.id }).catch(() => null);
+    const dbError = data ? null : 'Failed to create record';
       if (data) setTemplates(prev => [data as EmailTemplate, ...prev]);
     }
 
@@ -86,7 +83,7 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await supabase.from('email_templates').delete().eq('id', id);
+    await pb.collection('email_templates').delete().eq('id', id);
     setTemplates(prev => prev.filter(t => t.id !== id));
   };
 

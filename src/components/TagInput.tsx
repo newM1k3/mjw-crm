@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Hash, Plus } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { invalidateTagCache } from '../lib/useTags';
 
@@ -36,7 +36,7 @@ const TagInput: React.FC<TagInputProps> = ({ value, onChange, placeholder }) => 
 
   const fetchTags = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data } = await pb
       .from('tags')
       .select('id, name, color')
       .eq('user_id', user.id)
@@ -86,7 +86,7 @@ const TagInput: React.FC<TagInputProps> = ({ value, onChange, placeholder }) => 
       user_id: user.id,
       description: '',
     };
-    const { data } = await supabase.from('tags').insert([newTag]).select('id, name, color').single();
+    const { data } = await pb.collection('tags').insert([newTag]).select('id, name, color').single();
     if (data) {
       setAllTags(prev => [...prev, data as TagOption].sort((a, b) => a.name.localeCompare(b.name)));
       invalidateTagCache();

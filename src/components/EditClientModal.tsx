@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Building, Mail, Phone, Tag } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 import TagInput from './TagInput';
@@ -70,7 +70,7 @@ const EditClientModal: React.FC<EditClientModalProps> = ({ client, onClose, onSa
       tags: formData.tags,
     };
 
-    const { data, error: dbError } = await supabase
+    const { data, error: dbError } = await pb
       .from('clients')
       .update(updates)
       .eq('id', client.id)

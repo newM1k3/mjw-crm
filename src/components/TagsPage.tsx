@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Search, Hash, X, Users, Calendar, CreditCard as Edit2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { invalidateTagCache } from '../lib/useTags';
 
@@ -60,7 +60,7 @@ const TagModal: React.FC<TagModalProps> = ({ tag, onClose, onSave, userId }) => 
     setError('');
 
     if (tag) {
-      const { data, err } = await supabase
+      const { data, err } = await pb
         .from('tags')
         .update({ name: name.trim(), description, color })
         .eq('id', tag.id)
@@ -68,7 +68,7 @@ const TagModal: React.FC<TagModalProps> = ({ tag, onClose, onSave, userId }) => 
         .single() as { data: Record<string, unknown> | null; err: unknown };
       if (data) onSave({ ...tag, name: name.trim(), description, color });
     } else {
-      const { data, error: insertError } = await supabase
+      const { data, error: insertError } = await pb
         .from('tags')
         .insert([{
           name: name.trim(),
@@ -211,9 +211,9 @@ const TagsPage: React.FC = () => {
     setLoading(true);
 
     const [{ data: tagsData }, { data: clientsData }, { data: contactsData }] = await Promise.all([
-      supabase.from('tags').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-      supabase.from('clients').select('tags').eq('user_id', user.id),
-      supabase.from('contacts').select('tags').eq('user_id', user.id),
+      pb.collection('tags').getFullList({ filter: `user_id = \"${user.id}\"`, fields: '*' }).order('created_at', { ascending: false }),
+      pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'tags' }),
+      pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'tags' }),
     ]);
 
     if (tagsData) {
@@ -277,7 +277,7 @@ const TagsPage: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
-    await supabase.from('tags').delete().eq('id', id);
+    await pb.collection('tags').delete().eq('id', id);
     setTags(prev => prev.filter(t => t.id !== id));
     invalidateTagCache();
     setDeletingId(null);

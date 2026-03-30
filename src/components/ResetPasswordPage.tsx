@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { Lock, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface ResetPasswordPageProps {
@@ -17,11 +17,11 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ onDone }) => {
   const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    pb.authStore.then(({ data }) => {
       if (data.session) setSessionReady(true);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = pb.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY' && session) {
         setSessionReady(true);
       }
@@ -45,7 +45,7 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ onDone }) => {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password });
+      const { error } = await pb.auth.updateUser({ password });
       if (error) throw error;
       setSuccess(true);
       setTimeout(() => {

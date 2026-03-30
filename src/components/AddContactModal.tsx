@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Building, Mail, Phone, MapPin, Briefcase, Tag, Link } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 import TagInput from './TagInput';
@@ -50,7 +50,7 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
     if (!isOpen || !user) return;
     setFormData({ name: '', email: '', phone: '', company: '', position: '', location: '', tags: [], client_id: '' });
     setError('');
-    supabase
+    pb
       .from('clients')
       .select('id, name, company')
       .eq('user_id', user.id)
@@ -81,11 +81,8 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
       client_id: formData.client_id || null,
     };
 
-    const { data, error: dbError } = await supabase
-      .from('contacts')
-      .insert([payload])
-      .select()
-      .single();
+    const data = await pb.collection('contacts').create(payload).catch(() => null);
+    const dbError = data ? null : 'Failed to create record';
 
     setSaving(false);
 

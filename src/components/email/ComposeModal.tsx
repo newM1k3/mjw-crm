@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Send, Paperclip, AlertCircle, CheckCircle, FileText, Save, User } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { pb } from '../../lib/pocketbase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import RichTextEditor from './RichTextEditor';
@@ -77,8 +77,8 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
   useEffect(() => {
     if (!user) return;
     Promise.all([
-      supabase.from('contacts').select('id, name, email').eq('user_id', user.id).not('email', 'is', null).neq('email', ''),
-      supabase.from('clients').select('id, name, email').eq('user_id', user.id).not('email', 'is', null).neq('email', ''),
+      pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, email' }).not('email', 'is', null).neq('email', ''),
+      pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, email' }).not('email', 'is', null).neq('email', ''),
     ]).then(([{ data: contacts }, { data: clients }]) => {
       const list: RecipientSuggestion[] = [];
       if (contacts) contacts.forEach(c => { if (c.email) list.push({ id: c.id, name: c.name, email: c.email, type: 'contact' }); });
@@ -138,10 +138,10 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
 
   const findRelatedEntity = async (toAddress: string): Promise<{ entity_id: string; entity_type: string } | null> => {
     const email = toAddress.split(',')[0].trim();
-    const { data: contact } = await supabase
+    const { data: contact } = await pb
       .from('contacts').select('id').eq('user_id', user?.id).eq('email', email).maybeSingle();
     if (contact) return { entity_id: contact.id, entity_type: 'contact' };
-    const { data: client } = await supabase
+    const { data: client } = await pb
       .from('clients').select('id').eq('user_id', user?.id).eq('email', email).maybeSingle();
     if (client) return { entity_id: client.id, entity_type: 'client' };
     return null;
@@ -172,10 +172,10 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
     setSendStatus('saving_draft');
     const payload = buildEmailPayload('drafts');
     if (draftId) {
-      const { data } = await supabase.from('emails').update(payload).eq('id', draftId).select().single();
+      const { data } = await pb.collection('emails').update(payload).eq('id', draftId).select().single();
       if (data) onDraftSaved(data as Record<string, unknown>);
     } else {
-      const { data } = await supabase.from('emails').insert([payload]).select().single();
+      const { data } = await pb.collection('emails').insert([payload]).select().single();
       if (data) {
         setDraftId((data as { id: string }).id);
         onDraftSaved(data as Record<string, unknown>);
@@ -217,15 +217,15 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
       }
 
       if (draftId) {
-        await supabase.from('emails').delete().eq('id', draftId);
+        await pb.collection('emails').delete().eq('id', draftId);
       }
 
       const payload = buildEmailPayload('sent');
-      const { data: savedEmail } = await supabase.from('emails').insert([payload]).select().single();
+      const { data: savedEmail } = await pb.collection('emails').insert([payload]).select().single();
       if (savedEmail) onSent(savedEmail as Record<string, unknown>);
 
       const related = await findRelatedEntity(composeData.to);
-      await supabase.from('activities').insert([{
+      await pb.collection('activities').insert([{
         user_id: user.id,
         type: 'email',
         title: `Email sent: ${composeData.subject}`,

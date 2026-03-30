@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AlertTriangle, X, Trash2, AlertCircle } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { pb } from '../../lib/pocketbase';
 
 interface DeleteAccountModalProps {
   userEmail: string;
@@ -20,34 +20,22 @@ const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({ userEmail, onCl
     setLoading(true);
     setError('');
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    if (!pb.authStore.isValid || !pb.authStore.model) {
       setError('Not authenticated.');
       setLoading(false);
       return;
     }
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-    const res = await fetch(`${supabaseUrl}/functions/v1/delete-account`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-        'Apikey': anonKey,
-      },
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body.error || 'Failed to delete account. Please try again.');
+    try {
+      // Delete the user record — PocketBase will cascade-delete related data
+      // if collection rules and cascade deletes are configured in PocketBase admin
+      await pb.collection('users').delete(pb.authStore.model.id);
+      pb.authStore.clear();
+      onDeleted();
+    } catch (err: any) {
+      setError(err?.response?.message || err.message || 'Failed to delete account. Please try again.');
       setLoading(false);
-      return;
     }
-
-    await supabase.auth.signOut();
-    onDeleted();
   };
 
   return (

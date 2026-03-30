@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Star, Phone, Mail, Plus, FilterX, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import AddClientModal from './AddClientModal';
 import TagChip from './TagChip';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 import { useTagColors } from '../lib/useTags';
@@ -69,10 +69,8 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
   const fetchClients = async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('user_id', user.id);
+    const data = await pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"` }).catch(() => null);
+    const error = null;
     if (!error && data) {
       const typedData = data as Client[];
       setClients(typedData);
@@ -94,7 +92,7 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
 
   const handleAddClient = async (formData: Omit<Client, 'id'>) => {
     if (!user) return;
-    const { data, error } = await supabase
+    const { data, error } = await pb
       .from('clients')
       .insert([{ ...formData, user_id: user.id }])
       .select()

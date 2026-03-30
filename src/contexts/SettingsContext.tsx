@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from './AuthContext';
 
 export interface UserSettings {
@@ -58,24 +58,29 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const { user } = useAuth();
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const [recordId, setRecordId] = useState<string | null>(null);
 
   const refreshSettings = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('user_settings')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (data) {
-      setSettings({ ...DEFAULT_SETTINGS, ...data });
-    } else {
-      setSettings({
-        ...DEFAULT_SETTINGS,
-        full_name: user.user_metadata?.full_name || '',
+    try {
+      const records = await pb.collection('user_settings').getList(1, 1, {
+        filter: `user_id = "${user.id}"`,
       });
+      if (records.items.length > 0) {
+        const data = records.items[0];
+        setRecordId(data.id);
+        setSettings({ ...DEFAULT_SETTINGS, ...data });
+      } else {
+        setSettings({
+          ...DEFAULT_SETTINGS,
+          full_name: (user as any).name || '',
+        });
+      }
+    } catch {
+      setSettings({ ...DEFAULT_SETTINGS, full_name: (user as any).name || '' });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [user]);
 
   useEffect(() => {
@@ -85,21 +90,20 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const saveSettings = useCallback(async (partial: Partial<UserSettings>): Promise<{ error: string | null }> => {
     if (!user) return { error: 'Not authenticated' };
-
     const merged = { ...settings, ...partial };
-
-    const { error } = await supabase
-      .from('user_settings')
-      .upsert(
-        { ...merged, user_id: user.id, updated_at: new Date().toISOString() },
-        { onConflict: 'user_id' }
-      );
-
-    if (error) return { error: error.message };
-
-    setSettings(merged);
-    return { error: null };
-  }, [user, settings]);
+    try {
+      if (recordId) {
+        await pb.collection('user_settings').update(recordId, { ...merged, user_id: user.id });
+      } else {
+        const created = await pb.collection('user_settings').create({ ...merged, user_id: user.id });
+        setRecordId(created.id);
+      }
+      setSettings(merged);
+      return { error: null };
+    } catch (err: any) {
+      return { error: err?.message || 'Failed to save settings' };
+    }
+  }, [user, settings, recordId]);
 
   return (
     <SettingsContext.Provider value={{ settings, loading, saveSettings, refreshSettings }}>

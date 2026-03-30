@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Phone, Calendar, User, Clock, MessageCircle, UserPlus, Hash, CalendarPlus, Activity } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 
 interface ActivityItem {
@@ -49,12 +49,7 @@ const ActivityFeed: React.FC = () => {
     if (!user) return;
     const fetch = async () => {
       setLoading(true);
-      const { data } = await supabase
-        .from('activities')
-        .select('id, type, title, description, created_at')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
+      const data = await pb.collection('activities').getList(1, 5, { filter: `user_id = "${user.id}"`, sort: '- created_at', fields: 'id, type, title, description, created_at' }).then(r => r.items).catch(() => []);
       setActivities((data as ActivityItem[]) || []);
       setLoading(false);
     };

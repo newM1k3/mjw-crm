@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Clock, MapPin, User, Link } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { CalendarEvent, eventTypeConfig, monthNames, shortDayNames, formatTime, toDateStr } from './calendar/types';
 import EventModal from './calendar/EventModal';
@@ -26,7 +26,7 @@ const CalendarPage: React.FC = () => {
   const fetchEvents = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await pb
       .from('events')
       .select('*')
       .eq('user_id', user.id)
@@ -40,8 +40,8 @@ const CalendarPage: React.FC = () => {
   useEffect(() => {
     if (!user) return;
     Promise.all([
-      supabase.from('clients').select('id, name, company').eq('user_id', user.id),
-      supabase.from('contacts').select('id, name').eq('user_id', user.id),
+      pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, company' }),
+      pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name' }),
     ]).then(([{ data: cl }, { data: co }]) => {
       if (cl) {
         const map: Record<string, string> = {};
@@ -70,7 +70,7 @@ const CalendarPage: React.FC = () => {
   const handleDeleteConfirm = async () => {
     if (!deleteConfirmEvent) return;
     setDeleting(true);
-    await supabase.from('events').delete().eq('id', deleteConfirmEvent.id);
+    await pb.collection('events').delete().eq('id', deleteConfirmEvent.id);
     setDeleting(false);
     handleDeleted(deleteConfirmEvent.id);
     setDeleteConfirmEvent(null);

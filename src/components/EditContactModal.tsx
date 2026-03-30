@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Building, Mail, Phone, MapPin, Briefcase, Tag, Link } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import TagInput from './TagInput';
 
@@ -59,7 +59,7 @@ const EditContactModal: React.FC<EditContactModalProps> = ({ contact, onClose, o
     });
     setError('');
 
-    supabase
+    pb
       .from('clients')
       .select('id, name, company')
       .eq('user_id', user.id)
@@ -89,7 +89,7 @@ const EditContactModal: React.FC<EditContactModalProps> = ({ contact, onClose, o
       client_id: formData.client_id || null,
     };
 
-    const { data, error: dbError } = await supabase
+    const { data, error: dbError } = await pb
       .from('contacts')
       .update(updates)
       .eq('id', contact.id)

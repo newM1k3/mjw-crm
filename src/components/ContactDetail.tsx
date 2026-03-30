@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Mail, Phone, MapPin, Building, Star, CreditCard as Edit2, Trash2, X, Briefcase, Users } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import NotesSection from './NotesSection';
 import TagChip from './TagChip';
 import { useTagColors } from '../lib/useTags';
@@ -61,7 +61,7 @@ const ContactDetail: React.FC<ContactDetailProps> = ({ client, onClose, onEdit, 
     let cancelled = false;
     setLoadingContacts(true);
     setLinkedContacts([]);
-    supabase
+    pb
       .from('contacts')
       .select('id, name, email, position')
       .eq('client_id', client.id)

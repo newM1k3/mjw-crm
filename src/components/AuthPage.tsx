@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { Mail, Lock, User, Eye, EyeOff, ArrowLeft, CheckCircle } from 'lucide-react';
 
 type Mode = 'login' | 'register' | 'forgot';
@@ -27,18 +27,19 @@ const AuthPage: React.FC = () => {
 
     try {
       if (mode === 'register') {
-        const { error } = await supabase.auth.signUp({
+        await pb.collection('users').create({
+          name,
           email,
           password,
-          options: { data: { full_name: name } },
+          passwordConfirm: password,
         });
-        if (error) throw error;
+        // Auto sign-in after registration
+        await pb.collection('users').authWithPassword(email, password);
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        await pb.collection('users').authWithPassword(email, password);
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred');
+      setError(err?.response?.message || err.message || 'An error occurred');
     } finally {
       setLoading(false);
     }
@@ -50,13 +51,7 @@ const AuthPage: React.FC = () => {
     setLoading(true);
 
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}`;
-
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo,
-      });
-      if (resetError) throw resetError;
-
+      await pb.collection('users').requestPasswordReset(email);
       setResetSent(true);
     } catch (err: any) {
       setError(err.message || 'An error occurred');

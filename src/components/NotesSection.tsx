@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { MessageSquare, Plus, Trash2, Loader } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 
@@ -29,7 +29,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
     if (!user || !entityId) return;
     let cancelled = false;
     setLoading(true);
-    supabase
+    pb
       .from('notes')
       .select('id, content, created_at')
       .eq('user_id', user.id)
@@ -48,7 +48,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
     const trimmed = newNote.trim();
     if (!trimmed || !user) return;
     setSaving(true);
-    const { data, error } = await supabase
+    const { data, error } = await pb
       .from('notes')
       .insert([{ user_id: user.id, entity_id: entityId, entity_type: entityType, content: trimmed }])
       .select('id, content, created_at')
@@ -71,7 +71,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
-    await supabase.from('notes').delete().eq('id', id);
+    await pb.collection('notes').delete().eq('id', id);
     setNotes(prev => prev.filter(n => n.id !== id));
     setDeletingId(null);
   };

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, Phone, MapPin, Building, Briefcase, Star, CreditCard as Edit2, Trash2, X, Link } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import NotesSection from './NotesSection';
 import TagChip from './TagChip';
 import { useTagColors } from '../lib/useTags';
@@ -42,7 +42,7 @@ const ContactDetailPanel: React.FC<ContactDetailPanelProps> = ({ contact, onClos
       setClientName(null);
       return;
     }
-    supabase
+    pb
       .from('clients')
       .select('name, company')
       .eq('id', contact.client_id)

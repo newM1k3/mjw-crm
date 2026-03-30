@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, MapPin, FileText, Link, User, Trash2 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { pb } from '../../lib/pocketbase';
 import { useAuth } from '../../contexts/AuthContext';
 import { logActivity } from '../../lib/activity';
 import type { CalendarEvent } from './types';
@@ -61,8 +61,8 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
     }
 
     Promise.all([
-      supabase.from('clients').select('id, name, company').eq('user_id', user.id).order('name'),
-      supabase.from('contacts').select('id, name, position').eq('user_id', user.id).order('name'),
+      pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, company' }).order('name'),
+      pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, position' }).order('name'),
     ]).then(([{ data: cData }, { data: ctData }]) => {
       if (cData) setClients(cData as Client[]);
       if (ctData) setContacts(ctData as Contact[]);
@@ -102,7 +102,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
     let saveError: { message: string } | null = null;
 
     if (event) {
-      const res = await supabase
+      const res = await pb
         .from('events')
         .update(payload)
         .eq('id', event.id)
@@ -111,7 +111,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
       savedData = res.data as CalendarEvent;
       saveError = res.error;
     } else {
-      const res = await supabase
+      const res = await pb
         .from('events')
         .insert([payload])
         .select()
@@ -145,7 +145,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
   const handleDelete = async () => {
     if (!event || !user) return;
     setDeleting(true);
-    const { error: deleteError } = await supabase.from('events').delete().eq('id', event.id);
+    const { error: deleteError } = await pb.collection('events').delete().eq('id', event.id);
     setDeleting(false);
     if (deleteError) { setError('Failed to delete event. Please try again.'); return; }
     onDeleted?.(event.id);

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import TwoFactorSetup from './settings/TwoFactorSetup';
 import DeleteAccountModal from './settings/DeleteAccountModal';
 
@@ -119,7 +119,7 @@ const SettingsPage: React.FC = () => {
   }, [loading, settings, user]);
 
   useEffect(() => {
-    supabase.auth.mfa.listFactors().then(({ data }) => {
+    pb.auth.mfa.listFactors().then(({ data }) => {
       const verified = data?.totp?.some(f => f.status === 'verified') ?? false;
       setTwoFactorEnabled(verified);
     });
@@ -131,7 +131,7 @@ const SettingsPage: React.FC = () => {
     let payload: Record<string, unknown> = {};
     if (activeTab === 'profile') {
       payload = { ...profileForm };
-      await supabase.auth.updateUser({ data: { full_name: profileForm.full_name } });
+      await pb.auth.updateUser({ data: { full_name: profileForm.full_name } });
     } else if (activeTab === 'notifications') {
       payload = { ...notifForm };
     } else if (activeTab === 'security') {
@@ -157,7 +157,7 @@ const SettingsPage: React.FC = () => {
     if (pwForm.next.length < 8) { setPwError('New password must be at least 8 characters.'); return; }
     if (pwForm.next !== pwForm.confirm) { setPwError('New passwords do not match.'); return; }
     setPwSaveState('saving');
-    const { error } = await supabase.auth.updateUser({ password: pwForm.next });
+    const { error } = await pb.auth.updateUser({ password: pwForm.next });
     if (error) {
       setPwSaveState('error');
       setPwError(error.message);
@@ -182,7 +182,7 @@ const SettingsPage: React.FC = () => {
     if (!user) return;
     setExportLoading('clients');
     const date = new Date().toISOString().split('T')[0];
-    const { data: clients, error } = await supabase
+    const { data: clients, error } = await pb
       .from('clients')
       .select('id, name, email, phone, company, status, last_contact, starred, created_at')
       .eq('user_id', user.id);
@@ -200,7 +200,7 @@ const SettingsPage: React.FC = () => {
     if (!user) return;
     setExportLoading('contacts');
     const date = new Date().toISOString().split('T')[0];
-    const { data: contacts, error } = await supabase
+    const { data: contacts, error } = await pb
       .from('contacts')
       .select('id, name, email, phone, company, position, location, starred, created_at')
       .eq('user_id', user.id);

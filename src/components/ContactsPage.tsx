@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Phone, Mail, MapPin, Building, MoreVertical, Star, Trash2, CreditCard as Edit2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import AddContactModal from './AddContactModal';
 import EditContactModal from './EditContactModal';
@@ -48,7 +48,7 @@ const ContactsPage: React.FC = () => {
   const fetchContacts = async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await pb
       .from('contacts')
       .select('*')
       .eq('user_id', user.id)
@@ -91,7 +91,7 @@ const ContactsPage: React.FC = () => {
   };
 
   const handleDelete = async (contact: Contact) => {
-    await supabase.from('contacts').delete().eq('id', contact.id);
+    await pb.collection('contacts').delete().eq('id', contact.id);
     setContacts(prev => prev.filter(c => c.id !== contact.id));
     if (selectedContact?.id === contact.id) setSelectedContact(null);
     setDeleteConfirmId(null);
@@ -100,7 +100,7 @@ const ContactsPage: React.FC = () => {
 
   const toggleStar = async (e: React.MouseEvent, id: string, current: boolean) => {
     e.stopPropagation();
-    await supabase.from('contacts').update({ starred: !current }).eq('id', id);
+    await pb.collection('contacts').update({ starred: !current }).eq('id', id);
     setContacts(prev => prev.map(c => c.id === id ? { ...c, starred: !current } : c));
     if (selectedContact?.id === id) setSelectedContact(prev => prev ? { ...prev, starred: !current } : prev);
   };

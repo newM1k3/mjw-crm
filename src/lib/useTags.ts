@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from './supabase';
+import { pb } from './pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 
 export interface TagColor {
@@ -30,17 +30,15 @@ export function useTagColors(): Record<string, string> {
       setMap(m);
       return;
     }
-    const { data } = await supabase
-      .from('tags')
-      .select('name, color')
-      .eq('user_id', user.id);
-    if (data) {
-      cache = data as TagColor[];
-      cacheUserId = user.id;
-      const m: Record<string, string> = {};
-      cache.forEach(t => { m[t.name] = t.color; });
-      setMap(m);
-    }
+    const records = await pb.collection('tags').getFullList({
+      filter: `user_id = "${user.id}"`,
+      fields: 'name,color',
+    });
+    cache = records as unknown as TagColor[];
+    cacheUserId = user.id;
+    const m: Record<string, string> = {};
+    cache.forEach(t => { m[t.name] = t.color; });
+    setMap(m);
   }, [user]);
 
   useEffect(() => {

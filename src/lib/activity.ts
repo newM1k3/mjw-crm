@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { pb } from './pocketbase';
 
 interface LogActivityParams {
   userId: string;
@@ -17,12 +17,12 @@ export const logActivity = async ({
   entityId,
   entityType = '',
 }: LogActivityParams): Promise<void> => {
-  await supabase.from('activities').insert([{
+  await pb.collection('activities').create({
     user_id: userId,
     type,
     title,
     description,
     entity_id: entityId || null,
     entity_type: entityType,
-  }]);
+  });
 };

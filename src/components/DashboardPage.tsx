@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Calendar, TrendingUp, Activity, Mail, Phone, Clock, UserPlus, Hash, CalendarPlus } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 
 interface ClientCounts {
@@ -160,8 +160,8 @@ const DashboardPage: React.FC = () => {
       const sevenDaysStr = sevenDaysLater.toISOString().split('T')[0];
 
       const [clientsRes, eventsRes, eventsCountRes, activitiesRes, contactsRes] = await Promise.all([
-        supabase.from('clients').select('status').eq('user_id', user.id),
-        supabase
+        pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'status' }),
+        pb
           .from('events')
           .select('id, title, date, time, type, location')
           .eq('user_id', user.id)
@@ -169,19 +169,19 @@ const DashboardPage: React.FC = () => {
           .lte('date', sevenDaysStr)
           .order('date', { ascending: true })
           .limit(5),
-        supabase
+        pb
           .from('events')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .gte('date', todayStr)
           .lte('date', sevenDaysStr),
-        supabase
+        pb
           .from('activities')
           .select('*')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(5),
-        supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+        pb.collection('contacts').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
       ]);
 
       if (clientsRes.data) {

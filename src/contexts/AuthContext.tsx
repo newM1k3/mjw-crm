@@ -1,47 +1,53 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import type { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import type { RecordModel } from 'pocketbase';
+import { pb } from '../lib/pocketbase';
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: RecordModel | null;
   loading: boolean;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  session: null,
   loading: true,
   signOut: async () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<RecordModel | null>(
+    pb.authStore.isValid ? pb.authStore.model as RecordModel : null
+  );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    if (pb.authStore.isValid && pb.authStore.model) {
+      pb.collection('users').authRefresh().then(({ record }) => {
+        setUser(record);
+      }).catch(() => {
+        pb.authStore.clear();
+        setUser(null);
+      }).finally(() => {
+        setLoading(false);
+      });
+    } else {
       setLoading(false);
+    }
+
+    const unsubscribe = pb.authStore.onChange((_token, model) => {
+      setUser(model as RecordModel | null);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => { unsubscribe(); };
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    pb.authStore.clear();
+    setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   );
