@@ -20,7 +20,7 @@ import FAB from './components/FAB';
 import EventModal from './components/calendar/EventModal';
 import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
-import { pb } from './lib/pb';
+import { pb } from './lib/pocketbase';
 import { logActivity } from './lib/activity';
 
 interface Client {
@@ -92,7 +92,7 @@ function App() {
   const handleDeleteConfirm = async () => {
     if (!deleteConfirmClient) return;
     setDeleting(true);
-    await pb.collection('clients').delete().eq('id', deleteConfirmClient.id);
+    await pb.collection('clients').delete(deleteConfirmClient.id);
     if (user) {
       await logActivity({
         userId: user.id,
