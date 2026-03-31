@@ -79,7 +79,7 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
     Promise.all([
       pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, email' }).not('email', 'is', null).neq('email', ''),
       pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, email' }).not('email', 'is', null).neq('email', ''),
-    ]).then(([{ data: contacts }, { data: clients }]) => {
+    ]).then(([contacts, clients]) => {
       const list: RecipientSuggestion[] = [];
       if (contacts) contacts.forEach(c => { if (c.email) list.push({ id: c.id, name: c.name, email: c.email, type: 'contact' }); });
       if (clients) clients.forEach(c => { if (c.email) list.push({ id: c.id, name: c.name, email: c.email, type: 'client' }); });
@@ -139,10 +139,10 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
   const findRelatedEntity = async (toAddress: string): Promise<{ entity_id: string; entity_type: string } | null> => {
     const email = toAddress.split(',')[0].trim();
     const { data: contact } = await pb
-      .from('contacts').select('id').eq('user_id', user?.id).eq('email', email).maybeSingle();
+.collection('contacts').getFirstListItem(`user_id = "${user?.id}" && email = "${email}"`).catch(() => null);
     if (contact) return { entity_id: contact.id, entity_type: 'contact' };
     const { data: client } = await pb
-      .from('clients').select('id').eq('user_id', user?.id).eq('email', email).maybeSingle();
+.collection('clients').getFirstListItem(`user_id = "${user?.id}" && email = "${email}"`).catch(() => null);
     if (client) return { entity_id: client.id, entity_type: 'client' };
     return null;
   };
@@ -172,10 +172,10 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
     setSendStatus('saving_draft');
     const payload = buildEmailPayload('drafts');
     if (draftId) {
-      const { data } = await pb.collection('emails').update(payload).eq('id', draftId).select().single();
+      const data = await pb.collection('emails').update(draftId, payload).catch(() => null);
       if (data) onDraftSaved(data as Record<string, unknown>);
     } else {
-      const { data } = await pb.collection('emails').insert([payload]).select().single();
+      const data = await pb.collection('emails').create(payload).catch(() => null);
       if (data) {
         setDraftId((data as { id: string }).id);
         onDraftSaved(data as Record<string, unknown>);
@@ -217,22 +217,22 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
       }
 
       if (draftId) {
-        await pb.collection('emails').delete().eq('id', draftId);
+        await pb.collection('emails').delete(draftId).catch(() => null);
       }
 
       const payload = buildEmailPayload('sent');
-      const { data: savedEmail } = await pb.collection('emails').insert([payload]).select().single();
+      const savedEmail = await pb.collection('emails').create(payload).catch(() => null);
       if (savedEmail) onSent(savedEmail as Record<string, unknown>);
 
       const related = await findRelatedEntity(composeData.to);
-      await pb.collection('activities').insert([{
+      await pb.collection('activities').create({
         user_id: user.id,
         type: 'email',
         title: `Email sent: ${composeData.subject}`,
         description: `To: ${composeData.to}${composeData.cc ? ` | CC: ${composeData.cc}` : ''}`,
         entity_id: related?.entity_id || null,
         entity_type: related?.entity_type || 'email',
-      }]);
+      });
 
       setSendStatus('success');
       setTimeout(() => onClose(), 1200);

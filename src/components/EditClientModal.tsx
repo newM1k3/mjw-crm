@@ -70,21 +70,14 @@ const EditClientModal: React.FC<EditClientModalProps> = ({ client, onClose, onSa
       tags: formData.tags,
     };
 
-    const { data, error: dbError } = await pb
-      .from('clients')
-      .update(updates)
-      .eq('id', client.id)
-      .select()
-      .single();
+    const saved = await pb.collection('clients').update(client.id, updates).catch(() => null) as Client | null;
 
     setSaving(false);
 
-    if (dbError) {
+    if (!saved) {
       setError('Failed to save changes. Please try again.');
       return;
     }
-
-    const saved = data as Client;
     if (user) {
       await logActivity({
         userId: user.id,

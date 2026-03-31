@@ -50,12 +50,7 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
     if (!isOpen || !user) return;
     setFormData({ name: '', email: '', phone: '', company: '', position: '', location: '', tags: [], client_id: '' });
     setError('');
-    pb
-      .from('clients')
-      .select('id, name, company')
-      .eq('user_id', user.id)
-      .order('name', { ascending: true })
-      .then(({ data }) => { if (data) setClients(data as Client[]); });
+    pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }).then(data => { if (data) setClients(data as Client[]); }).catch(() => {});
   }, [isOpen, user]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {

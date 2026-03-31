@@ -161,32 +161,15 @@ const DashboardPage: React.FC = () => {
 
       const [clientsRes, eventsRes, eventsCountRes, activitiesRes, contactsRes] = await Promise.all([
         pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'status' }),
-        pb
-          .from('events')
-          .select('id, title, date, time, type, location')
-          .eq('user_id', user.id)
-          .gte('date', todayStr)
-          .lte('date', sevenDaysStr)
-          .order('date', { ascending: true })
-          .limit(5),
-        pb
-          .from('events')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .gte('date', todayStr)
-          .lte('date', sevenDaysStr),
-        pb
-          .from('activities')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(5),
-        pb.collection('contacts').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+        pb.collection('events').getList(1, 5, { filter: `user_id = "${user.id}" && date >= "${todayStr}" && date <= "${sevenDaysStr}"`, sort: 'date' }),
+        pb.collection('events').getList(1, 1, { filter: `user_id = "${user.id}" && date >= "${todayStr}" && date <= "${sevenDaysStr}"` }),
+        pb.collection('activities').getList(1, 5, { filter: `user_id = "${user.id}"`, sort: '-created' }),
+        pb.collection('contacts').getList(1, 1, { filter: `user_id = "${user.id}"` }),
       ]);
 
-      if (clientsRes.data) {
-        const counts = { active: 0, pending: 0, inactive: 0, total: clientsRes.data.length };
-        clientsRes.data.forEach(c => {
+      if (clientsRes) {
+        const counts = { active: 0, pending: 0, inactive: 0, total: clientsRes.length };
+        clientsRes.forEach((c: any) => {
           if (c.status === 'active') counts.active++;
           else if (c.status === 'pending') counts.pending++;
           else counts.inactive++;
@@ -194,10 +177,10 @@ const DashboardPage: React.FC = () => {
         setClientCounts(counts);
       }
 
-      if (eventsRes.data) setUpcomingEvents(eventsRes.data as UpcomingEvent[]);
-      if (eventsCountRes.count !== null) setUpcomingEventsCount(eventsCountRes.count);
-      if (activitiesRes.data) setRecentActivities(activitiesRes.data as ActivityItem[]);
-      if (contactsRes.count !== null) setContactCount(contactsRes.count);
+      if (eventsRes.items) setUpcomingEvents(eventsRes.items as UpcomingEvent[]);
+      if (eventsCountRes.totalItems !== undefined) setUpcomingEventsCount(eventsCountRes.totalItems);
+      if (activitiesRes.items) setRecentActivities(activitiesRes.items as ActivityItem[]);
+      if (contactsRes.totalItems !== undefined) setContactCount(contactsRes.totalItems);
 
       setLoading(false);
     };

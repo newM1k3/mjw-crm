@@ -36,10 +36,7 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
     if (!user) return;
     setLoading(true);
     const { data } = await pb
-      .from('email_templates')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('updated_at', { ascending: false });
+.collection('email_templates').getFullList({ filter: `user_id = "${user.id}"`, sort: '-updated' });
     if (data) setTemplates(data as EmailTemplate[]);
     setLoading(false);
   };
@@ -65,11 +62,7 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
 
     if (view === 'edit' && editing) {
       const { data } = await pb
-        .from('email_templates')
-        .update(payload)
-        .eq('id', editing.id)
-        .select()
-        .single();
+.collection('email_templates').update(editing.id, payload).catch(() => null);
       if (data) setTemplates(prev => prev.map(t => t.id === editing.id ? data as EmailTemplate : t));
     } else {
       const data = await pb.collection('email_templates').create({ ...payload, user_id: user.id }).catch(() => null);
@@ -83,7 +76,7 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await pb.collection('email_templates').delete().eq('id', id);
+    await pb.collection('email_templates').delete(id).catch(() => null);
     setTemplates(prev => prev.filter(t => t.id !== id));
   };
 

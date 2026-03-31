@@ -48,12 +48,8 @@ const ContactsPage: React.FC = () => {
   const fetchContacts = async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await pb
-      .from('contacts')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-    if (!error && data) {
+    const data = await pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"`, sort: '-created' }).catch(() => null);
+    if (data) {
       const typed = data as Contact[];
       setContacts(typed);
       const tagSet = new Set<string>();
@@ -91,7 +87,7 @@ const ContactsPage: React.FC = () => {
   };
 
   const handleDelete = async (contact: Contact) => {
-    await pb.collection('contacts').delete().eq('id', contact.id);
+    await pb.collection('contacts').delete(contact.id).catch(() => null);
     setContacts(prev => prev.filter(c => c.id !== contact.id));
     if (selectedContact?.id === contact.id) setSelectedContact(null);
     setDeleteConfirmId(null);
@@ -100,7 +96,7 @@ const ContactsPage: React.FC = () => {
 
   const toggleStar = async (e: React.MouseEvent, id: string, current: boolean) => {
     e.stopPropagation();
-    await pb.collection('contacts').update({ starred: !current }).eq('id', id);
+    await pb.collection('contacts').update(id, { starred: !current }).catch(() => null);
     setContacts(prev => prev.map(c => c.id === id ? { ...c, starred: !current } : c));
     if (selectedContact?.id === id) setSelectedContact(prev => prev ? { ...prev, starred: !current } : prev);
   };

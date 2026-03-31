@@ -92,13 +92,8 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
 
   const handleAddClient = async (formData: Omit<Client, 'id'>) => {
     if (!user) return;
-    const { data, error } = await pb
-      .from('clients')
-      .insert([{ ...formData, user_id: user.id }])
-      .select()
-      .single();
-    if (!error && data) {
-      const newClient = data as Client;
+    const newClient = await pb.collection('clients').create({ ...formData, user_id: user.id }).catch(() => null) as Client | null;
+    if (newClient) {
       setClients(prev => [newClient, ...prev]);
       newClient.tags.forEach(t => {
         setAvailableTags(prev => prev.includes(t) ? prev : [...prev, t].sort());

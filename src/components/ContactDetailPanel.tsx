@@ -42,14 +42,9 @@ const ContactDetailPanel: React.FC<ContactDetailPanelProps> = ({ contact, onClos
       setClientName(null);
       return;
     }
-    pb
-      .from('clients')
-      .select('name, company')
-      .eq('id', contact.client_id)
-      .maybeSingle()
-      .then(({ data }) => {
+    pb.collection('clients').getOne(contact.client_id!).then(data => {
         if (data) {
-          setClientName(data.company ? `${data.name} — ${data.company}` : data.name);
+          setClientName((data as any).company ? `${(data as any).name} — ${(data as any).company}` : (data as any).name);
         } else {
           setClientName(null);
         }

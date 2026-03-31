@@ -27,10 +27,7 @@ const CalendarPage: React.FC = () => {
     if (!user) return;
     setLoading(true);
     const { data, error } = await pb
-      .from('events')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('date', { ascending: true });
+.collection('events').getFullList({ filter: `user_id = "${user.id}"`, sort: 'date' });
     if (!error && data) setEvents(data as CalendarEvent[]);
     setLoading(false);
   }, [user]);
@@ -70,7 +67,7 @@ const CalendarPage: React.FC = () => {
   const handleDeleteConfirm = async () => {
     if (!deleteConfirmEvent) return;
     setDeleting(true);
-    await pb.collection('events').delete().eq('id', deleteConfirmEvent.id);
+    await pb.collection('events').delete(deleteConfirmEvent.id).catch(() => null);
     setDeleting(false);
     handleDeleted(deleteConfirmEvent.id);
     setDeleteConfirmEvent(null);

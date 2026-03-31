@@ -182,11 +182,8 @@ const SettingsPage: React.FC = () => {
     if (!user) return;
     setExportLoading('clients');
     const date = new Date().toISOString().split('T')[0];
-    const { data: clients, error } = await pb
-      .from('clients')
-      .select('id, name, email, phone, company, status, last_contact, starred, created_at')
-      .eq('user_id', user.id);
-    if (error || !clients || clients.length === 0) {
+    const clients = await pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"` }).catch(() => null);
+    if (!clients || clients.length === 0) {
       alert(error ? error.message : 'No clients found to export.');
       setExportLoading(null);
       return;
@@ -200,11 +197,8 @@ const SettingsPage: React.FC = () => {
     if (!user) return;
     setExportLoading('contacts');
     const date = new Date().toISOString().split('T')[0];
-    const { data: contacts, error } = await pb
-      .from('contacts')
-      .select('id, name, email, phone, company, position, location, starred, created_at')
-      .eq('user_id', user.id);
-    if (error || !contacts || contacts.length === 0) {
+    const contacts = await pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"` }).catch(() => null);
+    if (!contacts || contacts.length === 0) {
       alert(error ? error.message : 'No contacts found to export.');
       setExportLoading(null);
       return;

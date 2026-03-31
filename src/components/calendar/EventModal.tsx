@@ -61,8 +61,8 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
     }
 
     Promise.all([
-      pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, company' }).order('name'),
-      pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, position' }).order('name'),
+      pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }),
+      pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }),
     ]).then(([{ data: cData }, { data: ctData }]) => {
       if (cData) setClients(cData as Client[]);
       if (ctData) setContacts(ctData as Contact[]);
@@ -103,19 +103,12 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
 
     if (event) {
       const res = await pb
-        .from('events')
-        .update(payload)
-        .eq('id', event.id)
-        .select()
-        .single();
+.collection('events').update(event.id, payload).catch(() => null);
       savedData = res.data as CalendarEvent;
       saveError = res.error;
     } else {
       const res = await pb
-        .from('events')
-        .insert([payload])
-        .select()
-        .single();
+.collection('events').create(payload).catch(() => null);
       savedData = res.data as CalendarEvent;
       saveError = res.error;
     }
@@ -145,7 +138,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
   const handleDelete = async () => {
     if (!event || !user) return;
     setDeleting(true);
-    const { error: deleteError } = await pb.collection('events').delete().eq('id', event.id);
+    const deleteError = await pb.collection('events').delete(event.id).then(() => null).catch(e => e);
     setDeleting(false);
     if (deleteError) { setError('Failed to delete event. Please try again.'); return; }
     onDeleted?.(event.id);

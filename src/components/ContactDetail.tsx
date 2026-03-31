@@ -61,14 +61,9 @@ const ContactDetail: React.FC<ContactDetailProps> = ({ client, onClose, onEdit, 
     let cancelled = false;
     setLoadingContacts(true);
     setLinkedContacts([]);
-    pb
-      .from('contacts')
-      .select('id, name, email, position')
-      .eq('client_id', client.id)
-      .order('name', { ascending: true })
-      .then(({ data, error }) => {
+    pb.collection('contacts').getFullList({ filter: `client_id = "${client.id}"`, sort: 'name' }).then(data => {
         if (cancelled) return;
-        if (!error && data) {
+        if (data) {
           setLinkedContacts(data as LinkedContact[]);
         } else {
           setLinkedContacts([]);

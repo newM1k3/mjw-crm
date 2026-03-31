@@ -61,16 +61,10 @@ const TagModal: React.FC<TagModalProps> = ({ tag, onClose, onSave, userId }) => 
 
     if (tag) {
       const { data, err } = await pb
-        .from('tags')
-        .update({ name: name.trim(), description, color })
-        .eq('id', tag.id)
-        .select()
-        .single() as { data: Record<string, unknown> | null; err: unknown };
+.collection('tags').update(tag.id, { name: name.trim(), description, color }).catch(() => null) as unknown as { data: Record<string, unknown> | null; err: unknown };
       if (data) onSave({ ...tag, name: name.trim(), description, color });
     } else {
-      const { data, error: insertError } = await pb
-        .from('tags')
-        .insert([{
+      const data = await pb.collection('tags').create({
           name: name.trim(),
           description,
           color,
@@ -78,12 +72,10 @@ const TagModal: React.FC<TagModalProps> = ({ tag, onClose, onSave, userId }) => 
           count: 0,
           created_date: new Date().toISOString().split('T')[0],
           user_id: userId,
-        }])
-        .select()
-        .single();
-      if (!insertError && data) {
+        }).catch(() => null);
+      if (data) {
         onSave({ ...(data as Record<string, unknown>), clientCount: 0 } as unknown as Tag);
-      } else if (insertError) {
+      } else {
         setError('Failed to create tag. Please try again.');
       }
     }
@@ -211,7 +203,7 @@ const TagsPage: React.FC = () => {
     setLoading(true);
 
     const [{ data: tagsData }, { data: clientsData }, { data: contactsData }] = await Promise.all([
-      pb.collection('tags').getFullList({ filter: `user_id = \"${user.id}\"`, fields: '*' }).order('created_at', { ascending: false }),
+      pb.collection('tags').getFullList({ filter: `user_id = "${user.id}"`, sort: '-created' }),
       pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'tags' }),
       pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'tags' }),
     ]);
@@ -277,7 +269,7 @@ const TagsPage: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
-    await pb.collection('tags').delete().eq('id', id);
+    await pb.collection('tags').delete(id).catch(() => null);
     setTags(prev => prev.filter(t => t.id !== id));
     invalidateTagCache();
     setDeletingId(null);

@@ -36,11 +36,7 @@ const TagInput: React.FC<TagInputProps> = ({ value, onChange, placeholder }) => 
 
   const fetchTags = useCallback(async () => {
     if (!user) return;
-    const { data } = await pb
-      .from('tags')
-      .select('id, name, color')
-      .eq('user_id', user.id)
-      .order('name', { ascending: true });
+    const data = await pb.collection('tags').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }).catch(() => null);
     if (data) setAllTags(data as TagOption[]);
   }, [user]);
 
@@ -86,7 +82,7 @@ const TagInput: React.FC<TagInputProps> = ({ value, onChange, placeholder }) => 
       user_id: user.id,
       description: '',
     };
-    const { data } = await pb.collection('tags').insert([newTag]).select('id, name, color').single();
+    const data = await pb.collection('tags').create(newTag).catch(() => null);
     if (data) {
       setAllTags(prev => [...prev, data as TagOption].sort((a, b) => a.name.localeCompare(b.name)));
       invalidateTagCache();

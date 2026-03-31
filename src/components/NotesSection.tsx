@@ -29,18 +29,12 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
     if (!user || !entityId) return;
     let cancelled = false;
     setLoading(true);
-    pb
-      .from('notes')
-      .select('id, content, created_at')
-      .eq('user_id', user.id)
-      .eq('entity_id', entityId)
-      .eq('entity_type', entityType)
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
+    pb.collection('notes').getFullList({ filter: `user_id = "${user.id}" && entity_id = "${entityId}" && entity_type = "${entityType}"`, sort: '-created' })
+      .then(data => {
         if (cancelled) return;
-        if (!error && data) setNotes(data as Note[]);
+        if (data) setNotes(data as Note[]);
         setLoading(false);
-      });
+      }).catch(() => setLoading(false));
     return () => { cancelled = true; };
   }, [user, entityId, entityType]);
 
@@ -48,12 +42,8 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
     const trimmed = newNote.trim();
     if (!trimmed || !user) return;
     setSaving(true);
-    const { data, error } = await pb
-      .from('notes')
-      .insert([{ user_id: user.id, entity_id: entityId, entity_type: entityType, content: trimmed }])
-      .select('id, content, created_at')
-      .single();
-    if (!error && data) {
+    const data = await pb.collection('notes').create({ user_id: user.id, entity_id: entityId, entity_type: entityType, content: trimmed }).catch(() => null);
+    if (data) {
       setNotes(prev => [data as Note, ...prev]);
       setNewNote('');
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -71,7 +61,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
-    await pb.collection('notes').delete().eq('id', id);
+    await pb.collection('notes').delete(id).catch(() => null);
     setNotes(prev => prev.filter(n => n.id !== id));
     setDeletingId(null);
   };

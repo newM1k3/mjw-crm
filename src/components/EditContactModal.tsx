@@ -59,12 +59,7 @@ const EditContactModal: React.FC<EditContactModalProps> = ({ contact, onClose, o
     });
     setError('');
 
-    pb
-      .from('clients')
-      .select('id, name, company')
-      .eq('user_id', user.id)
-      .order('name', { ascending: true })
-      .then(({ data }) => { if (data) setClients(data as Client[]); });
+    pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }).then(data => { if (data) setClients(data as Client[]); }).catch(() => {});
   }, [contact, user]);
 
   if (!contact) return null;
@@ -89,12 +84,8 @@ const EditContactModal: React.FC<EditContactModalProps> = ({ contact, onClose, o
       client_id: formData.client_id || null,
     };
 
-    const { data, error: dbError } = await pb
-      .from('contacts')
-      .update(updates)
-      .eq('id', contact.id)
-      .select()
-      .single();
+    const data = await pb.collection('contacts').update(contact.id, updates).catch(() => null);
+    const dbError = data ? null : 'update failed';
 
     setSaving(false);
 
