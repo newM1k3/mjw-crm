@@ -1,11 +1,19 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Star, Phone, Mail, Plus, FilterX, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Search, Star, Phone, Mail, Plus, FilterX,
+  ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Users,
+} from 'lucide-react';
 import AddClientModal from './AddClientModal';
 import TagChip from './TagChip';
-import { pb, ensureAuth } from '../lib/pocketbase';
+import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 import { useTagColors } from '../lib/useTags';
+import {
+  EmptyState, PermissionDenied, TimedOut, FetchError,
+} from './ui/FetchState';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Client {
   id: string;
@@ -28,8 +36,12 @@ interface ClientListProps {
 
 type SortField = 'name' | 'company' | 'created_at';
 type SortDir = 'asc' | 'desc';
+type FetchStatus = 'loading' | 'success' | 'empty' | 'forbidden' | 'timeout' | 'error';
 
 const PAGE_SIZE = 10;
+const TIMEOUT_MS = 10_000;
+
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 const statusConfig = {
   active: { label: 'Active', bg: 'bg-green-100', text: 'text-green-800' },
@@ -44,6 +56,8 @@ const avatarColors = [
 
 const getAvatarColor = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length];
 
+// ─── SortIcon ─────────────────────────────────────────────────────────────────
+
 const SortIcon: React.FC<{ field: SortField; sortField: SortField; sortDir: SortDir }> = ({ field, sortField, sortDir }) => {
   if (sortField !== field) return <ChevronsUpDown className="w-3.5 h-3.5 text-gray-400 ml-1 inline-block" />;
   return sortDir === 'asc'
@@ -51,12 +65,14 @@ const SortIcon: React.FC<{ field: SortField; sortField: SortField; sortDir: Sort
     : <ChevronDown className="w-3.5 h-3.5 text-primary-700 ml-1 inline-block" />;
 };
 
+// ─── ClientList ───────────────────────────────────────────────────────────────
+
 const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientId, registerRefresh }) => {
   const { user } = useAuth();
   const tagColors = useTagColors();
   const [clients, setClients] = useState<Client[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [fetchStatus, setFetchStatus] = useState<FetchStatus>('loading');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterTag, setFilterTag] = useState('all');
@@ -66,36 +82,48 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const registeredRef = useRef(false);
 
-  const fetchClients = async () => {
+  const fetchClients = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
-    const data = await pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"` }).catch(() => null);
-    if (data) {
+    setFetchStatus('loading');
+    try {
+      // Single-quoted filter values prevent 400 Bad Request from PocketBase parser.
+      const data = await Promise.race([
+        pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'` }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('__TIMEOUT__')), TIMEOUT_MS)
+        ),
+      ]);
+
       const typedData = data as Client[];
       setClients(typedData);
       const tagSet = new Set<string>();
-      typedData.forEach(c => c.tags.forEach(t => tagSet.add(t)));
+      typedData.forEach(c => c.tags?.forEach(t => tagSet.add(t)));
       setAvailableTags(Array.from(tagSet).sort());
+      setFetchStatus(typedData.length === 0 ? 'empty' : 'success');
+    } catch (err: any) {
+      if (err?.message === '__TIMEOUT__') {
+        setFetchStatus('timeout');
+      } else if (err?.status === 403 || err?.status === 401) {
+        setFetchStatus('forbidden');
+      } else {
+        setFetchStatus('error');
+      }
     }
-    setLoading(false);
-  };
+  }, [user]);
 
-  useEffect(() => { fetchClients(); }, [user]);
+  useEffect(() => { fetchClients(); }, [fetchClients]);
 
   useEffect(() => {
     if (registerRefresh && !registeredRef.current) {
       registeredRef.current = true;
       registerRefresh(fetchClients);
     }
-  }, [registerRefresh]);
+  }, [registerRefresh, fetchClients]);
 
-  /**
-   * Called by AddClientModal with the already-created Client record.
-   * We simply prepend it to local state — no second PocketBase call needed.
-   */
   const handleAddClient = (newClient: Client) => {
     setClients(prev => [newClient, ...prev]);
-    newClient.tags.forEach(t => {
+    setFetchStatus('success');
+    newClient.tags?.forEach(t => {
       setAvailableTags(prev => prev.includes(t) ? prev : [...prev, t].sort());
     });
   };
@@ -167,18 +195,207 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
     </th>
   );
 
+  // ── Content area ──────────────────────────────────────────────────────────
+  const renderContent = () => {
+    // Loading spinner
+    if (fetchStatus === 'loading') {
+      return (
+        <div className="flex items-center justify-center h-48">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-primary-700 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-gray-400">Loading clients…</p>
+          </div>
+        </div>
+      );
+    }
+
+    // 403 / 401 — permission denied
+    if (fetchStatus === 'forbidden') {
+      return <PermissionDenied resource="clients" className="h-48" />;
+    }
+
+    // Request timed out
+    if (fetchStatus === 'timeout') {
+      return <TimedOut onRetry={fetchClients} className="h-48" />;
+    }
+
+    // Generic fetch error
+    if (fetchStatus === 'error') {
+      return (
+        <FetchError
+          message="Could not load clients. Check your connection and try again."
+          onRetry={fetchClients}
+          className="h-48"
+        />
+      );
+    }
+
+    // Empty database — no clients at all
+    if (fetchStatus === 'empty' && !hasFilters) {
+      return (
+        <EmptyState
+          icon={Users}
+          message="No Clients Found"
+          sub="You haven't added any clients yet. Click 'Add Client' to get started."
+          className="h-48"
+          action={
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-700 text-white text-sm font-medium rounded hover:bg-primary-800 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Client
+            </button>
+          }
+        />
+      );
+    }
+
+    // Filters returned no results
+    if (pageClients.length === 0 && hasFilters) {
+      return (
+        <EmptyState
+          icon={FilterX}
+          message="No clients match your filters"
+          sub="Try adjusting your search or filter criteria."
+          className="h-48"
+          action={
+            <button
+              onClick={resetFilters}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded hover:bg-gray-200 transition-colors"
+            >
+              <FilterX className="w-4 h-4" />
+              Clear Filters
+            </button>
+          }
+        />
+      );
+    }
+
+    // Data table
+    return (
+      <>
+        {/* Desktop table */}
+        <div className="hidden md:block">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <ThSort field="name" label="Name" />
+                <ThSort field="company" label="Company" />
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
+                <ThSort field="created_at" label="Added" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {pageClients.map(client => (
+                <tr
+                  key={client.id}
+                  onClick={() => onSelectClient(client)}
+                  className={`cursor-pointer transition-colors duration-150 hover:bg-blue-50 ${selectedClientId === client.id ? 'bg-blue-50 border-l-2 border-primary-700' : ''}`}
+                >
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full ${getAvatarColor(client.name)} flex items-center justify-center flex-shrink-0`}>
+                        <span className="text-xs font-medium text-white">{client.name.charAt(0).toUpperCase()}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium text-gray-900">{client.name}</span>
+                        {client.starred && <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-600">{client.company}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-col gap-0.5">
+                      <a href={`mailto:${client.email}`} onClick={e => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-700 transition-colors">
+                        <Mail className="w-3 h-3" />{client.email}
+                      </a>
+                      <a href={`tel:${client.phone}`} onClick={e => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-700 transition-colors">
+                        <Phone className="w-3 h-3" />{client.phone}
+                      </a>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusConfig[client.status]?.bg} ${statusConfig[client.status]?.text}`}>
+                      {statusConfig[client.status]?.label}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1">
+                      {(client.tags || []).slice(0, 3).map(tag => (
+                        <TagChip key={tag} tag={tag} colorKey={tagColors[tag]} />
+                      ))}
+                      {(client.tags || []).length > 3 && (
+                        <span className="text-xs text-gray-400">+{client.tags.length - 3}</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-xs text-gray-400">
+                    {client.created_at ? new Date(client.created_at).toLocaleDateString() : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="md:hidden divide-y divide-gray-100">
+          {pageClients.map(client => (
+            <div
+              key={client.id}
+              onClick={() => onSelectClient(client)}
+              className={`p-4 cursor-pointer transition-colors duration-150 hover:bg-blue-50 ${selectedClientId === client.id ? 'bg-blue-50 border-l-2 border-primary-700' : ''}`}
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div className={`w-9 h-9 rounded-full ${getAvatarColor(client.name)} flex items-center justify-center flex-shrink-0`}>
+                  <span className="text-sm font-medium text-white">{client.name.charAt(0).toUpperCase()}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-gray-900 truncate">{client.name}</p>
+                    {client.starred && <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 flex-shrink-0" />}
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">{client.company}</p>
+                </div>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusConfig[client.status]?.bg} ${statusConfig[client.status]?.text}`}>
+                  {statusConfig[client.status]?.label}
+                </span>
+              </div>
+              {(client.tags || []).length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {client.tags.slice(0, 4).map(tag => (
+                    <TagChip key={tag} tag={tag} colorKey={tagColors[tag]} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-white overflow-hidden border-r border-gray-200">
+      {/* Header */}
       <div className="bg-primary-700 px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-medium text-white">Clients</h2>
             <p className="text-sm text-blue-200 mt-0.5">
-              {filteredAndSorted.length === clients.length
-                ? `${clients.length} total`
-                : `${filteredAndSorted.length} of ${clients.length}`}
+              {fetchStatus === 'success' || (fetchStatus === 'empty' && hasFilters)
+                ? filteredAndSorted.length === clients.length
+                  ? `${clients.length} total`
+                  : `${filteredAndSorted.length} of ${clients.length}`
+                : fetchStatus === 'loading'
+                  ? 'Loading…'
+                  : ''}
             </p>
           </div>
+          {/* Add Client button is always visible — even on empty state */}
           <button
             onClick={() => setIsAddModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-white text-primary-700 text-sm font-medium rounded md-ripple hover:bg-blue-50 transition-colors duration-200"
@@ -189,13 +406,14 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
         </div>
       </div>
 
+      {/* Filters — always visible so user can clear them even on error states */}
       <div className="px-6 py-4 border-b border-gray-200 bg-white flex-shrink-0">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
-              placeholder="Search by name, company, email or phone..."
+              placeholder="Search by name, company, email or phone…"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded text-sm text-gray-900 bg-white outline-none transition-colors duration-200 focus:border-primary-700 focus:border-2"
@@ -252,119 +470,13 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
         </div>
       </div>
 
+      {/* Content */}
       <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="flex items-center justify-center h-48">
-            <div className="w-8 h-8 border-2 border-primary-700 border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : pageClients.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-            <p className="text-sm">{hasFilters ? 'No clients match your filters.' : 'No clients yet. Add your first client!'}</p>
-          </div>
-        ) : (
-          <>
-            <div className="hidden md:block">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
-                  <tr>
-                    <ThSort field="name" label="Name" />
-                    <ThSort field="company" label="Company" />
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
-                    <ThSort field="created_at" label="Added" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {pageClients.map(client => (
-                    <tr
-                      key={client.id}
-                      onClick={() => onSelectClient(client)}
-                      className={`cursor-pointer transition-colors duration-150 hover:bg-blue-50 ${selectedClientId === client.id ? 'bg-blue-50 border-l-2 border-primary-700' : ''}`}
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full ${getAvatarColor(client.name)} flex items-center justify-center flex-shrink-0`}>
-                            <span className="text-xs font-medium text-white">{client.name.charAt(0).toUpperCase()}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-medium text-gray-900">{client.name}</span>
-                            {client.starred && <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{client.company}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col gap-0.5">
-                          <a href={`mailto:${client.email}`} onClick={e => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-700 transition-colors">
-                            <Mail className="w-3 h-3" />{client.email}
-                          </a>
-                          <a href={`tel:${client.phone}`} onClick={e => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-700 transition-colors">
-                            <Phone className="w-3 h-3" />{client.phone}
-                          </a>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusConfig[client.status]?.bg} ${statusConfig[client.status]?.text}`}>
-                          {statusConfig[client.status]?.label}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-1">
-                          {(client.tags || []).slice(0, 3).map(tag => (
-                            <TagChip key={tag} tag={tag} colorKey={tagColors[tag]} />
-                          ))}
-                          {(client.tags || []).length > 3 && (
-                            <span className="text-xs text-gray-400">+{client.tags.length - 3}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-xs text-gray-400">
-                        {client.created_at ? new Date(client.created_at).toLocaleDateString() : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="md:hidden divide-y divide-gray-100">
-              {pageClients.map(client => (
-                <div
-                  key={client.id}
-                  onClick={() => onSelectClient(client)}
-                  className={`p-4 cursor-pointer transition-colors duration-150 hover:bg-blue-50 ${selectedClientId === client.id ? 'bg-blue-50 border-l-2 border-primary-700' : ''}`}
-                >
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className={`w-9 h-9 rounded-full ${getAvatarColor(client.name)} flex items-center justify-center flex-shrink-0`}>
-                      <span className="text-sm font-medium text-white">{client.name.charAt(0).toUpperCase()}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-medium text-gray-900 truncate">{client.name}</p>
-                        {client.starred && <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 flex-shrink-0" />}
-                      </div>
-                      <p className="text-xs text-gray-500 truncate">{client.company}</p>
-                    </div>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusConfig[client.status]?.bg} ${statusConfig[client.status]?.text}`}>
-                      {statusConfig[client.status]?.label}
-                    </span>
-                  </div>
-                  {(client.tags || []).length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {client.tags.slice(0, 4).map(tag => (
-                        <TagChip key={tag} tag={tag} colorKey={tagColors[tag]} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
+        {renderContent()}
       </div>
 
-      {totalPages > 1 && (
+      {/* Pagination — only shown when there is data */}
+      {(fetchStatus === 'success') && totalPages > 1 && (
         <div className="px-6 py-3 border-t border-gray-200 bg-white flex items-center justify-between flex-shrink-0">
           <p className="text-xs text-gray-500">
             Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredAndSorted.length)} of {filteredAndSorted.length}

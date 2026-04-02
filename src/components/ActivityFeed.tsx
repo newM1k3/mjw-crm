@@ -49,7 +49,7 @@ const ActivityFeed: React.FC = () => {
     if (!user) return;
     const fetch = async () => {
       setLoading(true);
-      const data = await pb.collection('activities').getList(1, 5, { filter: `user_id = "${user.id}"`, sort: '- created_at', fields: 'id, type, title, description, created_at' }).then(r => r.items).catch(() => []);
+      const data = await pb.collection('activities').getList(1, 5, { filter: `user_id = '${user.id}'`, sort: '-created', fields: 'id, type, title, description, created_at' }).then(r => r.items).catch(() => []);
       setActivities((data as ActivityItem[]) || []);
       setLoading(false);
     };
