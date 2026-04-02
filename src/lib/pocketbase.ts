@@ -8,21 +8,51 @@ if (!pbUrl) {
 
 export const pb = new PocketBase(pbUrl);
 
-// Disable PocketBase's built-in auto-cancellation of duplicate requests.
-//
-// The SDK cancels an in-flight request when an identical one is made before
-// the first completes. In a React app this fires as a spurious
-// "ClientResponseError 0: The request was autocancelled" during StrictMode
-// double-renders or when multiple components mount simultaneously and each
-// trigger the same collection fetch. Disabling it globally is the
-// recommended approach for React apps.
-//
-// See: https://github.com/pocketbase/js-sdk#auto-cancellation
+// ---------------------------------------------------------------------------
+// 1. Disable auto-cancellation
+//    The SDK cancels an in-flight request when an identical one is dispatched
+//    before it resolves. In React 18 StrictMode this fires as a spurious
+//    "ClientResponseError 0: The request was autocancelled" on every double-
+//    render. Disabling it globally is the SDK-recommended approach for React.
+//    See: https://github.com/pocketbase/js-sdk#auto-cancellation
+// ---------------------------------------------------------------------------
 pb.autoCancellation(false);
 
-// Keep the auth store synced across tabs.
-// PocketBase handles localStorage persistence automatically.
+// ---------------------------------------------------------------------------
+// 2. Global 403 / 401 interceptor
+//    PocketBase API rules return 403 when the auth token is missing, expired,
+//    or does not satisfy the collection rule (e.g. user_id = @request.auth.id).
+//    Without an interceptor the UI is left in an infinite loading spinner.
+//    This hook fires BEFORE the error propagates to the calling component so
+//    the auth store is cleared and a custom DOM event is dispatched. AuthContext
+//    listens for this event and redirects the user to the login screen.
+// ---------------------------------------------------------------------------
+pb.beforeSend = (url, options) => {
+  return { url, options };
+};
+
+pb.afterSend = (response, data) => {
+  if (response.status === 401 || response.status === 403) {
+    // Clear the stale token so pb.authStore.isValid becomes false everywhere.
+    pb.authStore.clear();
+    // Dispatch a DOM event so AuthContext (or any listener) can react without
+    // creating a circular import between pocketbase.ts and AuthContext.tsx.
+    window.dispatchEvent(new CustomEvent('pb:authError', { detail: { status: response.status } }));
+  }
+  return data;
+};
+
+// ---------------------------------------------------------------------------
+// 3. Keep the auth store synced across browser tabs.
+//    PocketBase handles localStorage persistence automatically.
+// ---------------------------------------------------------------------------
 pb.authStore.onChange(() => {}, true);
+
+// ---------------------------------------------------------------------------
+// 4. ensureAuth() — call before every write operation
+//    Proactively refreshes the token so it never expires mid-session.
+//    Throws a clear error (not a silent 403) if the user is not authenticated.
+// ---------------------------------------------------------------------------
 
 /**
  * Ensures the current auth token is valid before performing a write operation.
@@ -44,7 +74,6 @@ export async function ensureAuth(): Promise<void> {
   }
 
   // Proactively refresh the token so it never expires mid-session.
-  // authRefresh is a no-op if the token is still fresh.
   try {
     await pb.collection('users').authRefresh();
   } catch {

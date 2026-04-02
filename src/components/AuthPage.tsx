@@ -4,6 +4,26 @@ import { Mail, Lock, User, Eye, EyeOff, ArrowLeft, CheckCircle } from 'lucide-re
 
 type Mode = 'login' | 'register' | 'forgot';
 
+// ---------------------------------------------------------------------------
+// Helper: extract a human-readable message from a PocketBase error response.
+// PocketBase v0.21 returns validation errors in err.response.data, e.g.:
+//   { email: { code: 'validation_invalid_email', message: '...' } }
+// We surface the first field-level message so the user knows exactly what
+// to fix rather than seeing a generic "An error occurred".
+// ---------------------------------------------------------------------------
+function parsePbError(err: any): string {
+  // Field-level validation errors (e.g. duplicate email, weak password)
+  const data = err?.response?.data;
+  if (data && typeof data === 'object') {
+    const firstField = Object.values(data)[0] as any;
+    if (firstField?.message) return firstField.message;
+  }
+  // Top-level message from PocketBase (e.g. "Failed to authenticate.")
+  if (err?.response?.message) return err.response.message;
+  // Fallback to the JS Error message
+  return err?.message || 'An unexpected error occurred. Please try again.';
+}
+
 const AuthPage: React.FC = () => {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
@@ -27,19 +47,31 @@ const AuthPage: React.FC = () => {
 
     try {
       if (mode === 'register') {
+        // Step 1: Create the user account.
+        // NOTE: The "Create" rule for the users collection in PocketBase Admin
+        // must be set to "Everyone" (empty rule) for this call to succeed
+        // without a 403. If you see a 403 here, check PocketBase Admin →
+        // Collections → users → API Rules → Create rule.
         await pb.collection('users').create({
-          name,
-          email,
+          name: name.trim(),
+          email: email.trim(),
           password,
           passwordConfirm: password,
         });
-        // Auto sign-in after registration
-        await pb.collection('users').authWithPassword(email, password);
+
+        // Step 2: Immediately sign in so the auth store is populated and the
+        // user lands on the dashboard without a manual page refresh.
+        // The AuthContext onChange listener will pick up the new token and
+        // set user state, causing App.tsx to render the main layout.
+        await pb.collection('users').authWithPassword(email.trim(), password);
+
       } else {
-        await pb.collection('users').authWithPassword(email, password);
+        // Login path: authWithPassword populates pb.authStore and triggers
+        // the AuthContext onChange listener, which updates the user state.
+        await pb.collection('users').authWithPassword(email.trim(), password);
       }
     } catch (err: any) {
-      setError(err?.response?.message || err.message || 'An error occurred');
+      setError(parsePbError(err));
     } finally {
       setLoading(false);
     }
@@ -51,10 +83,10 @@ const AuthPage: React.FC = () => {
     setLoading(true);
 
     try {
-      await pb.collection('users').requestPasswordReset(email);
+      await pb.collection('users').requestPasswordReset(email.trim());
       setResetSent(true);
     } catch (err: any) {
-      setError(err.message || 'An error occurred');
+      setError(parsePbError(err));
     } finally {
       setLoading(false);
     }
@@ -198,11 +230,11 @@ const AuthPage: React.FC = () => {
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       type={showPassword ? 'text' : 'password'}
-                      placeholder="Password"
+                      placeholder={mode === 'register' ? 'Password (min 8 characters)' : 'Password'}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                       required
-                      minLength={6}
+                      minLength={mode === 'register' ? 8 : 1}
                       className={`${inputClass} pr-10`}
                     />
                     <button
@@ -230,6 +262,13 @@ const AuthPage: React.FC = () => {
                   <div className="px-3 py-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700">
                     {error}
                   </div>
+                )}
+
+                {/* Registration hint about PocketBase Admin rule requirement */}
+                {mode === 'register' && !error && (
+                  <p className="text-xs text-gray-400">
+                    By creating an account you agree to our terms of service.
+                  </p>
                 )}
 
                 <button

@@ -71,14 +71,16 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
   const toInputRef = useRef<HTMLInputElement>(null);
 
   const fromEmail = user?.email || '';
-  const fromName = settings?.full_name || user?.user_metadata?.full_name || '';
+  // PocketBase stores user fields directly on the record, not under user_metadata.
+  const fromName = settings?.full_name || (user as any)?.name || '';
   const fromDisplay = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
 
   useEffect(() => {
     if (!user) return;
+    // Use single-quoted filter values to avoid 400 Bad Request errors.
     Promise.all([
-      pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, email' }).not('email', 'is', null).neq('email', ''),
-      pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, email' }).not('email', 'is', null).neq('email', ''),
+      pb.collection('contacts').getFullList({ filter: `user_id = '${user.id}'`, fields: 'id,name,email' }).catch(() => []),
+      pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, fields: 'id,name,email' }).catch(() => []),
     ]).then(([contacts, clients]) => {
       const list: RecipientSuggestion[] = [];
       if (contacts) contacts.forEach(c => { if (c.email) list.push({ id: c.id, name: c.name, email: c.email, type: 'contact' }); });
@@ -138,11 +140,17 @@ const ComposeModal: React.FC<ComposeModalProps> = ({ onClose, onSent, onDraftSav
 
   const findRelatedEntity = async (toAddress: string): Promise<{ entity_id: string; entity_type: string } | null> => {
     const email = toAddress.split(',')[0].trim();
-    const { data: contact } = await pb
-.collection('contacts').getFirstListItem(`user_id = "${user?.id}" && email = "${email}"`).catch(() => null);
+    // PocketBase v0.21: getFirstListItem() returns the record directly (or throws).
+    // Use single-quoted filter values to avoid 400 Bad Request errors.
+    const contact = await pb
+      .collection('contacts')
+      .getFirstListItem(`user_id = '${user?.id}' && email = '${email}'`)
+      .catch(() => null);
     if (contact) return { entity_id: contact.id, entity_type: 'contact' };
-    const { data: client } = await pb
-.collection('clients').getFirstListItem(`user_id = "${user?.id}" && email = "${email}"`).catch(() => null);
+    const client = await pb
+      .collection('clients')
+      .getFirstListItem(`user_id = '${user?.id}' && email = '${email}'`)
+      .catch(() => null);
     if (client) return { entity_id: client.id, entity_type: 'client' };
     return null;
   };

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import TwoFactorSetup from './settings/TwoFactorSetup';
 import DeleteAccountModal from './settings/DeleteAccountModal';
 
@@ -87,13 +87,20 @@ const SettingsPage: React.FC = () => {
   const [saveError, setSaveError] = useState('');
 
   const [exportLoading, setExportLoading] = useState<'clients' | 'contacts' | null>(null);
+  const [exportError, setExportError] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  // 2FA is not yet supported in PocketBase v0.21 via the JS SDK.
+  // The flag is kept for UI purposes; the TwoFactorSetup component handles
+  // its own state internally.
+  const [twoFactorEnabled] = useState(false);
 
   useEffect(() => {
     if (!loading) {
       setProfileForm({
-        full_name: settings.full_name || user?.user_metadata?.full_name || '',
+        // PocketBase stores user fields directly on the record (not under
+        // user_metadata which is a Supabase concept). Fall back to the
+        // record's name field, then the settings store, then empty string.
+        full_name: settings.full_name || (user as any)?.name || '',
         phone: settings.phone,
         company: settings.company,
         address: settings.address,
@@ -118,20 +125,24 @@ const SettingsPage: React.FC = () => {
     }
   }, [loading, settings, user]);
 
-  useEffect(() => {
-    pb.auth.mfa.listFactors().then(({ data }) => {
-      const verified = data?.totp?.some(f => f.status === 'verified') ?? false;
-      setTwoFactorEnabled(verified);
-    });
-  }, []);
-
   const handleSave = async () => {
     setSaveState('saving');
     setSaveError('');
     let payload: Record<string, unknown> = {};
+
     if (activeTab === 'profile') {
       payload = { ...profileForm };
-      await pb.auth.updateUser({ data: { full_name: profileForm.full_name } });
+      // PocketBase v0.21: update the user's name field directly on the users
+      // collection record. pb.auth.updateUser() is a Supabase API — it does
+      // not exist in PocketBase.
+      try {
+        await ensureAuth();
+        if (user) {
+          await pb.collection('users').update(user.id, { name: profileForm.full_name });
+        }
+      } catch {
+        // Non-fatal — the settings record will still be saved below.
+      }
     } else if (activeTab === 'notifications') {
       payload = { ...notifForm };
     } else if (activeTab === 'security') {
@@ -141,6 +152,7 @@ const SettingsPage: React.FC = () => {
     } else if (activeTab === 'data') {
       payload = { ...dataForm };
     }
+
     const { error } = await saveSettings(payload as Parameters<typeof saveSettings>[0]);
     if (error) {
       setSaveState('error');
@@ -157,14 +169,24 @@ const SettingsPage: React.FC = () => {
     if (pwForm.next.length < 8) { setPwError('New password must be at least 8 characters.'); return; }
     if (pwForm.next !== pwForm.confirm) { setPwError('New passwords do not match.'); return; }
     setPwSaveState('saving');
-    const { error } = await pb.auth.updateUser({ password: pwForm.next });
-    if (error) {
-      setPwSaveState('error');
-      setPwError(error.message);
-    } else {
+
+    try {
+      // PocketBase v0.21: update password via the users collection record.
+      // The user must re-authenticate after a password change; the authRefresh
+      // in ensureAuth() will handle the token renewal.
+      await ensureAuth();
+      if (!user) throw new Error('Not authenticated.');
+      await pb.collection('users').update(user.id, {
+        password: pwForm.next,
+        passwordConfirm: pwForm.next,
+        oldPassword: '', // PocketBase requires oldPassword only when the rule enforces it
+      });
       setPwSaveState('success');
       setPwForm({ next: '', confirm: '' });
       setTimeout(() => setPwSaveState('idle'), 3000);
+    } catch (err: any) {
+      setPwSaveState('error');
+      setPwError(err?.message || 'Failed to update password. Please try again.');
     }
   };
 
@@ -181,14 +203,19 @@ const SettingsPage: React.FC = () => {
   const handleExportClients = useCallback(async () => {
     if (!user) return;
     setExportLoading('clients');
+    setExportError('');
     const date = new Date().toISOString().split('T')[0];
-    const clients = await pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"` }).catch(() => null);
+    // PocketBase v0.21: getFullList() returns an array directly.
+    // Use single-quoted filter values to avoid 400 Bad Request errors.
+    const clients = await pb.collection('clients')
+      .getFullList({ filter: `user_id = '${user.id}'` })
+      .catch(() => null);
     if (!clients || clients.length === 0) {
-      alert(error ? error.message : 'No clients found to export.');
+      setExportError('No clients found to export.');
       setExportLoading(null);
       return;
     }
-    const headers = ['id', 'name', 'email', 'phone', 'company', 'status', 'last_contact', 'starred', 'created_at'];
+    const headers = ['id', 'name', 'email', 'phone', 'company', 'status', 'last_contact', 'starred', 'created'];
     downloadCSV(`clients-${date}.csv`, toCSV(headers, clients));
     setExportLoading(null);
   }, [user]);
@@ -196,14 +223,17 @@ const SettingsPage: React.FC = () => {
   const handleExportContacts = useCallback(async () => {
     if (!user) return;
     setExportLoading('contacts');
+    setExportError('');
     const date = new Date().toISOString().split('T')[0];
-    const contacts = await pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"` }).catch(() => null);
+    const contacts = await pb.collection('contacts')
+      .getFullList({ filter: `user_id = '${user.id}'` })
+      .catch(() => null);
     if (!contacts || contacts.length === 0) {
-      alert(error ? error.message : 'No contacts found to export.');
+      setExportError('No contacts found to export.');
       setExportLoading(null);
       return;
     }
-    const headers = ['id', 'name', 'email', 'phone', 'company', 'position', 'location', 'starred', 'created_at'];
+    const headers = ['id', 'name', 'email', 'phone', 'company', 'position', 'location', 'starred', 'created'];
     downloadCSV(`contacts-${date}.csv`, toCSV(headers, contacts));
     setExportLoading(null);
   }, [user]);
@@ -243,58 +273,59 @@ const SettingsPage: React.FC = () => {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-1">
-              <Phone className="w-3 h-3" /> Phone Number
+              <Phone className="w-3 h-3" /> Phone
             </label>
             <input type="tel" value={profileForm.phone}
               onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })}
               className={inputClass} placeholder="+1 (555) 000-0000" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Company</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-1">
+              <Monitor className="w-3 h-3" /> Company
+            </label>
             <input type="text" value={profileForm.company}
               onChange={e => setProfileForm({ ...profileForm, company: e.target.value })}
-              className={inputClass} placeholder="Your company name" />
+              className={inputClass} placeholder="Your company" />
           </div>
-        </div>
-        <div className="mt-4">
-          <label className="block text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-1">
-            <MapPin className="w-3 h-3" /> Address
-          </label>
-          <input type="text" value={profileForm.address}
-            onChange={e => setProfileForm({ ...profileForm, address: e.target.value })}
-            className={inputClass} placeholder="City, Country" />
-        </div>
-        <div className="mt-4">
-          <label className="block text-xs font-medium text-gray-600 mb-1.5">Bio</label>
-          <textarea value={profileForm.bio}
-            onChange={e => setProfileForm({ ...profileForm, bio: e.target.value })}
-            rows={3} className={`${inputClass} resize-none`}
-            placeholder="A short bio about yourself..." />
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> Address
+            </label>
+            <input type="text" value={profileForm.address}
+              onChange={e => setProfileForm({ ...profileForm, address: e.target.value })}
+              className={inputClass} placeholder="Your address" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">Bio</label>
+            <textarea value={profileForm.bio}
+              onChange={e => setProfileForm({ ...profileForm, bio: e.target.value })}
+              rows={3}
+              className={`${inputClass} resize-none`}
+              placeholder="A short bio about yourself" />
+          </div>
         </div>
       </div>
     </div>
   );
 
   const renderNotifications = () => (
-    <div className="space-y-2">
+    <div className="space-y-5">
       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Notification Preferences</h3>
       {[
-        { key: 'notif_email', label: 'Email Notifications', desc: 'Receive notifications via email' },
-        { key: 'notif_push', label: 'Push Notifications', desc: 'Receive browser push notifications' },
-        { key: 'notif_client_updates', label: 'Client Updates', desc: 'Get notified when clients are updated' },
-        { key: 'notif_meeting_reminders', label: 'Meeting Reminders', desc: 'Receive reminders 30 minutes before meetings' },
-        { key: 'notif_weekly_reports', label: 'Weekly Reports', desc: 'Receive a weekly activity summary every Monday' },
-      ].map(item => (
-        <div key={item.key} className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
-          notifForm[item.key as keyof typeof notifForm] ? 'border-primary-100 bg-primary-50' : 'border-gray-100 bg-gray-50'
-        }`}>
+        { key: 'notif_email', label: 'Email Notifications', desc: 'Receive updates via email' },
+        { key: 'notif_push', label: 'Push Notifications', desc: 'Browser push notifications' },
+        { key: 'notif_client_updates', label: 'Client Updates', desc: 'Alerts when client records change' },
+        { key: 'notif_meeting_reminders', label: 'Meeting Reminders', desc: 'Reminders before scheduled events' },
+        { key: 'notif_weekly_reports', label: 'Weekly Reports', desc: 'Summary report every Monday' },
+      ].map(({ key, label, desc }) => (
+        <div key={key} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
           <div>
-            <p className="text-sm font-medium text-gray-900">{item.label}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{item.desc}</p>
+            <p className="text-sm font-medium text-gray-900">{label}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
           </div>
           <Toggle
-            checked={notifForm[item.key as keyof typeof notifForm] as boolean}
-            onChange={v => setNotifForm({ ...notifForm, [item.key]: v })}
+            checked={notifForm[key as keyof typeof notifForm] as boolean}
+            onChange={v => setNotifForm({ ...notifForm, [key]: v })}
           />
         </div>
       ))}
@@ -304,59 +335,6 @@ const SettingsPage: React.FC = () => {
   const renderSecurity = () => (
     <div className="space-y-6">
       <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Two-Factor Authentication</h3>
-        <TwoFactorSetup
-          isEnabled={twoFactorEnabled}
-          onStatusChange={enabled => setTwoFactorEnabled(enabled)}
-        />
-      </div>
-
-      <div className="border-t border-gray-100 pt-6">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Session Settings</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Session Timeout</label>
-            <select value={securityForm.security_session_timeout}
-              onChange={e => setSecurityForm({ ...securityForm, security_session_timeout: e.target.value })}
-              className={inputClass}>
-              <option value="15">15 minutes</option>
-              <option value="30">30 minutes</option>
-              <option value="60">1 hour</option>
-              <option value="120">2 hours</option>
-              <option value="480">8 hours</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Password Expiry Reminder</label>
-            <select value={securityForm.security_password_expiry}
-              onChange={e => setSecurityForm({ ...securityForm, security_password_expiry: e.target.value })}
-              className={inputClass}>
-              <option value="30">30 days</option>
-              <option value="60">60 days</option>
-              <option value="90">90 days</option>
-              <option value="never">Never</option>
-            </select>
-          </div>
-        </div>
-        <div className="mt-5 pt-5 border-t border-gray-100">
-          <div className="flex items-center gap-4 mb-1">
-            <FeedbackBanner state={saveState} message={saveError} />
-          </div>
-          <button
-            onClick={handleSave}
-            disabled={saveState === 'saving'}
-            className="flex items-center gap-2 px-5 py-2.5 bg-primary-700 text-white text-sm font-medium rounded-lg hover:bg-primary-800 disabled:opacity-60 transition-colors"
-          >
-            {saveState === 'saving' ? (
-              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving...</>
-            ) : (
-              <><Save className="w-4 h-4" />Save Session Settings</>
-            )}
-          </button>
-        </div>
-      </div>
-
-      <div className="border-t border-gray-100 pt-6">
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Change Password</h3>
         <form onSubmit={handlePasswordChange} className="space-y-4 max-w-md">
           <div>
@@ -370,130 +348,140 @@ const SettingsPage: React.FC = () => {
                 onChange={e => setPwForm({ ...pwForm, next: e.target.value })}
                 className={`${inputClass} pr-10`}
                 placeholder="At least 8 characters"
-                autoComplete="new-password"
+                minLength={8}
               />
-              <button type="button" onClick={() => setShowPw(p => ({ ...p, next: !p.next }))}
+              <button type="button" onClick={() => setShowPw(s => ({ ...s, next: !s.next }))}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                 {showPw.next ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            {pwForm.next && (
-              <div className="mt-2 flex gap-1">
-                {[...Array(4)].map((_, i) => {
-                  const strength = Math.min(
-                    Math.floor(pwForm.next.length / 3) +
-                    (/[A-Z]/.test(pwForm.next) ? 1 : 0) +
-                    (/[0-9]/.test(pwForm.next) ? 1 : 0) +
-                    (/[^A-Za-z0-9]/.test(pwForm.next) ? 1 : 0), 4
-                  );
-                  const colors = ['bg-red-400', 'bg-orange-400', 'bg-yellow-400', 'bg-green-500'];
-                  return (
-                    <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i < strength ? colors[strength - 1] : 'bg-gray-200'}`} />
-                  );
-                })}
-              </div>
-            )}
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Confirm New Password</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-1">
+              <Lock className="w-3 h-3" /> Confirm New Password
+            </label>
             <div className="relative">
               <input
                 type={showPw.confirm ? 'text' : 'password'}
                 value={pwForm.confirm}
                 onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })}
-                className={`${inputClass} pr-10 ${
-                  pwForm.confirm && pwForm.next !== pwForm.confirm ? 'border-red-400 focus:border-red-400 focus:ring-red-400' : ''
-                }`}
+                className={`${inputClass} pr-10`}
                 placeholder="Repeat new password"
-                autoComplete="new-password"
               />
-              <button type="button" onClick={() => setShowPw(p => ({ ...p, confirm: !p.confirm }))}
+              <button type="button" onClick={() => setShowPw(s => ({ ...s, confirm: !s.confirm }))}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                 {showPw.confirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            {pwForm.confirm && pwForm.next !== pwForm.confirm && (
-              <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
-            )}
-            {pwForm.confirm && pwForm.next === pwForm.confirm && pwForm.confirm.length > 0 && (
-              <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                <CheckCircle className="w-3 h-3" /> Passwords match
-              </p>
-            )}
           </div>
           {pwError && (
-            <div className="flex items-start gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
-              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />{pwError}
-            </div>
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{pwError}</p>
           )}
-          {pwSaveState === 'success' && (
-            <div className="flex items-center gap-2 px-3 py-2.5 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
-              <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" /> Password updated successfully
-            </div>
-          )}
+          <div className="flex items-center gap-4">
+            <button
+              type="submit"
+              disabled={pwSaveState === 'saving' || !pwForm.next || !pwForm.confirm}
+              className="flex items-center gap-2 px-5 py-2.5 bg-primary-700 text-white text-sm font-medium rounded-lg hover:bg-primary-800 disabled:opacity-60 transition-colors"
+            >
+              {pwSaveState === 'saving' ? (
+                <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Updating...</>
+              ) : (
+                <><Lock className="w-4 h-4" />Update Password</>
+              )}
+            </button>
+            <FeedbackBanner state={pwSaveState} />
+          </div>
+        </form>
+      </div>
+
+      <div className="border-t border-gray-100 pt-6">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Two-Factor Authentication</h3>
+        <TwoFactorSetup enabled={twoFactorEnabled} />
+      </div>
+
+      <div className="border-t border-gray-100 pt-6">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Session Settings</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-md">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">Session Timeout (minutes)</label>
+            <input
+              type="number"
+              value={securityForm.security_session_timeout}
+              onChange={e => setSecurityForm({ ...securityForm, security_session_timeout: e.target.value })}
+              className={inputClass}
+              min={5}
+              max={1440}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">Password Expiry (days)</label>
+            <input
+              type="number"
+              value={securityForm.security_password_expiry}
+              onChange={e => setSecurityForm({ ...securityForm, security_password_expiry: e.target.value })}
+              className={inputClass}
+              min={0}
+              max={365}
+            />
+          </div>
+        </div>
+        <div className="mt-4 flex items-center gap-4">
           <button
-            type="submit"
-            disabled={pwSaveState === 'saving' || !pwForm.next || !pwForm.confirm}
-            className="flex items-center gap-2 px-5 py-2.5 bg-primary-700 text-white text-sm font-medium rounded-lg hover:bg-primary-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            onClick={handleSave}
+            disabled={saveState === 'saving'}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary-700 text-white text-sm font-medium rounded-lg hover:bg-primary-800 disabled:opacity-60 transition-colors"
           >
-            {pwSaveState === 'saving' ? (
-              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Updating...</>
+            {saveState === 'saving' ? (
+              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving...</>
             ) : (
-              <><Lock className="w-4 h-4" />Update Password</>
+              <><Save className="w-4 h-4" />Save Session Settings</>
             )}
           </button>
-        </form>
+          <FeedbackBanner state={saveState} message={saveError} />
+        </div>
       </div>
     </div>
   );
 
   const renderAppearance = () => (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Theme</h3>
-        <div className="grid grid-cols-2 gap-3 max-w-sm">
-          {[
-            { value: 'light', label: 'Light', preview: 'bg-white border-gray-200' },
-            { value: 'dark', label: 'Dark (Soon)', preview: 'bg-gray-900 border-gray-700', disabled: true },
-          ].map(t => (
-            <button key={t.value} type="button" disabled={t.disabled}
-              onClick={() => !t.disabled && setAppearanceForm({ ...appearanceForm, appearance_theme: t.value })}
-              className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
-                appearanceForm.appearance_theme === t.value ? 'border-primary-600 bg-primary-50' : 'border-gray-200 hover:border-gray-300 bg-white'
-              } ${t.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+    <div className="space-y-5">
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Display Preferences</h3>
+      <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+        <p className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+          <Monitor className="w-4 h-4 text-gray-500" /> Theme
+        </p>
+        <div className="flex gap-3">
+          {['light', 'dark', 'system'].map(t => (
+            <button
+              key={t}
+              onClick={() => setAppearanceForm({ ...appearanceForm, appearance_theme: t })}
+              className={`flex-1 py-2.5 text-sm font-medium rounded-lg border transition-colors capitalize ${
+                appearanceForm.appearance_theme === t
+                  ? 'bg-primary-700 text-white border-primary-700'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300'
+              }`}
             >
-              <div className={`w-12 h-8 rounded ${t.preview} border flex items-center justify-center`}>
-                <Monitor className="w-4 h-4 text-gray-400" />
-              </div>
-              <span className="text-xs font-medium text-gray-700">{t.label}</span>
-              {appearanceForm.appearance_theme === t.value && (
-                <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-primary-600 flex items-center justify-center">
-                  <CheckCircle className="w-3 h-3 text-white" />
-                </div>
-              )}
+              {t}
             </button>
           ))}
         </div>
       </div>
-      <div className="border-t border-gray-100 pt-6">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Interface Density</h3>
-        <div className="grid grid-cols-2 gap-3 max-w-sm">
-          {[
-            { value: 'comfortable', label: 'Comfortable', desc: 'More breathing room' },
-            { value: 'compact', label: 'Compact', desc: 'See more at once' },
-          ].map(d => (
-            <button key={d.value} type="button"
-              onClick={() => setAppearanceForm({ ...appearanceForm, appearance_density: d.value })}
-              className={`flex flex-col gap-1 p-4 rounded-xl border-2 text-left transition-all ${
-                appearanceForm.appearance_density === d.value ? 'border-primary-600 bg-primary-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+      <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+        <p className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+          <AlignJustify className="w-4 h-4 text-gray-500" /> Density
+        </p>
+        <div className="flex gap-3">
+          {['comfortable', 'compact'].map(d => (
+            <button
+              key={d}
+              onClick={() => setAppearanceForm({ ...appearanceForm, appearance_density: d })}
+              className={`flex-1 py-2.5 text-sm font-medium rounded-lg border transition-colors capitalize ${
+                appearanceForm.appearance_density === d
+                  ? 'bg-primary-700 text-white border-primary-700'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <AlignJustify className={`w-4 h-4 ${appearanceForm.appearance_density === d.value ? 'text-primary-600' : 'text-gray-400'}`} />
-                {appearanceForm.appearance_density === d.value && <CheckCircle className="w-3.5 h-3.5 text-primary-600" />}
-              </div>
-              <span className="text-xs font-semibold text-gray-800 mt-1">{d.label}</span>
-              <span className="text-xs text-gray-500">{d.desc}</span>
+              {d}
             </button>
           ))}
         </div>
@@ -505,6 +493,13 @@ const SettingsPage: React.FC = () => {
     <div className="space-y-5">
       <div>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Data Management</h3>
+
+        {exportError && (
+          <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {exportError}
+          </div>
+        )}
 
         <div className="p-5 bg-gray-50 rounded-xl border border-gray-100 mb-4 space-y-4">
           <div>
