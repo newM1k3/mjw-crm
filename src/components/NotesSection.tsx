@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { MessageSquare, Plus, Trash2, Loader } from 'lucide-react';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 
@@ -29,7 +29,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
     if (!user || !entityId) return;
     let cancelled = false;
     setLoading(true);
-    pb.collection('notes').getFullList({ filter: `user_id = "${user.id}" && entity_id = "${entityId}" && entity_type = "${entityType}"`, sort: '-created' })
+    pb.collection('notes').getFullList({ filter: `user_id = '${user.id}' && entity_id = '${entityId}' && entity_type = '${entityType}'`, sort: '-created' })
       .then(data => {
         if (cancelled) return;
         if (data) setNotes(data as Note[]);
@@ -42,6 +42,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
     const trimmed = newNote.trim();
     if (!trimmed || !user) return;
     setSaving(true);
+    try { await ensureAuth(); } catch { setSaving(false); return; }
     const data = await pb.collection('notes').create({ user_id: user.id, entity_id: entityId, entity_type: entityType, content: trimmed }).catch(() => null);
     if (data) {
       setNotes(prev => [data as Note, ...prev]);
@@ -61,6 +62,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ entityId, entityType, entit
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
+    try { await ensureAuth(); } catch { setDeletingId(null); return; }
     await pb.collection('notes').delete(id).catch(() => null);
     setNotes(prev => prev.filter(n => n.id !== id));
     setDeletingId(null);

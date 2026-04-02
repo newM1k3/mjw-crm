@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Hash, Plus } from 'lucide-react';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { invalidateTagCache } from '../lib/useTags';
 
@@ -36,7 +36,7 @@ const TagInput: React.FC<TagInputProps> = ({ value, onChange, placeholder }) => 
 
   const fetchTags = useCallback(async () => {
     if (!user) return;
-    const data = await pb.collection('tags').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }).catch(() => null);
+    const data = await pb.collection('tags').getFullList({ filter: `user_id = '${user.id}'`, sort: 'name' }).catch(() => null);
     if (data) setAllTags(data as TagOption[]);
   }, [user]);
 
@@ -73,6 +73,7 @@ const TagInput: React.FC<TagInputProps> = ({ value, onChange, placeholder }) => 
 
   const createAndAdd = async (name: string) => {
     if (!user) return;
+    try { await ensureAuth(); } catch { return; }
     const newTag = {
       name: name.trim(),
       color: DEFAULT_COLOR,

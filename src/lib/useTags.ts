@@ -31,7 +31,7 @@ export function useTagColors(): Record<string, string> {
       return;
     }
     const records = await pb.collection('tags').getFullList({
-      filter: `user_id = "${user.id}"`,
+      filter: `user_id = '${user.id}'`,
       fields: 'name,color',
     });
     cache = records as unknown as TagColor[];

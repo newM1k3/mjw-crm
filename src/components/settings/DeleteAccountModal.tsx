@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AlertTriangle, X, Trash2, AlertCircle } from 'lucide-react';
-import { pb } from '../../lib/pocketbase';
+import { pb, ensureAuth } from '../../lib/pocketbase';
 
 interface DeleteAccountModalProps {
   userEmail: string;
@@ -20,16 +20,15 @@ const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({ userEmail, onCl
     setLoading(true);
     setError('');
 
-    if (!pb.authStore.isValid || !pb.authStore.model) {
-      setError('Not authenticated.');
-      setLoading(false);
-      return;
-    }
-
     try {
+      // ensureAuth() verifies pb.authStore.isValid and proactively refreshes
+      // the token before the delete request so we don't get a stale-token 403.
+      await ensureAuth();
       // Delete the user record — PocketBase will cascade-delete related data
-      // if collection rules and cascade deletes are configured in PocketBase admin
-      await pb.collection('users').delete(pb.authStore.model.id);
+      // if collection rules and cascade deletes are configured in PocketBase admin.
+      // The Delete rule is: id = @request.auth.id — so the user can only delete
+      // their own record, which is exactly what we are doing here.
+      await pb.collection('users').delete(pb.authStore.model!.id);
       pb.authStore.clear();
       onDeleted();
     } catch (err: any) {

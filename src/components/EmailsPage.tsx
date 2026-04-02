@@ -3,7 +3,7 @@ import {
   Search, Plus, Mail, Reply, Forward, Trash2, Star, Paperclip,
   Send, Inbox, FileText, RotateCcw
 } from 'lucide-react';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import ComposeModal from './email/ComposeModal';
 
@@ -64,7 +64,7 @@ const EmailsPage: React.FC<EmailsPageProps> = ({ initialComposeTo, onComposeClea
   const fetchEmails = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const fetchedEmails = await pb.collection('emails').getFullList({ filter: `user_id = "${user.id}"`, sort: '-date' }).catch(() => null);
+    const fetchedEmails = await pb.collection('emails').getFullList({ filter: `user_id = '${user.id}'`, sort: '-date' }).catch(() => null);
 
     if (fetchedEmails) {
       const all = fetchedEmails as Email[];
@@ -103,6 +103,7 @@ const EmailsPage: React.FC<EmailsPageProps> = ({ initialComposeTo, onComposeClea
   const selectEmail = async (email: Email) => {
     setSelectedEmail(email);
     if (!email.read && email.folder !== 'drafts') {
+      try { await ensureAuth(); } catch { return; }
       await pb.collection('emails').update(email.id, { read: true }).catch(() => null);
       setEmails(prev => prev.map(e => e.id === email.id ? { ...e, read: true } : e));
       setFolderCounts(prev => ({ ...prev, unread: Math.max(0, (prev.unread || 0) - 1) }));
@@ -111,12 +112,14 @@ const EmailsPage: React.FC<EmailsPageProps> = ({ initialComposeTo, onComposeClea
 
   const toggleStar = async (id: string, current: boolean, e: React.MouseEvent) => {
     e.stopPropagation();
+    try { await ensureAuth(); } catch { return; }
     await pb.collection('emails').update(id, { starred: !current }).catch(() => null);
     setEmails(prev => prev.map(e => e.id === id ? { ...e, starred: !current } : e));
     if (selectedEmail?.id === id) setSelectedEmail(prev => prev ? { ...prev, starred: !current } : null);
   };
 
   const moveToTrash = async (email: Email) => {
+    try { await ensureAuth(); } catch { return; }
     await pb.collection('emails').update(email.id, { folder: 'trash' }).catch(() => null);
     setEmails(prev => prev.map(e => e.id === email.id ? { ...e, folder: 'trash' } : e));
     setFolderCounts(prev => ({
@@ -128,6 +131,7 @@ const EmailsPage: React.FC<EmailsPageProps> = ({ initialComposeTo, onComposeClea
   };
 
   const permanentDelete = async (id: string) => {
+    try { await ensureAuth(); } catch { return; }
     await pb.collection('emails').delete(id).catch(() => null);
     setEmails(prev => prev.filter(e => e.id !== id));
     setFolderCounts(prev => ({ ...prev, trash: Math.max(0, (prev.trash || 0) - 1) }));
@@ -135,6 +139,7 @@ const EmailsPage: React.FC<EmailsPageProps> = ({ initialComposeTo, onComposeClea
   };
 
   const restoreFromTrash = async (email: Email) => {
+    try { await ensureAuth(); } catch { return; }
     const restoreFolder = email.labels?.includes('Sent') ? 'sent' : 'inbox';
     await pb.collection('emails').update(email.id, { folder: restoreFolder }).catch(() => null);
     setEmails(prev => prev.map(e => e.id === email.id ? { ...e, folder: restoreFolder } : e));

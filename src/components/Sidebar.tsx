@@ -28,9 +28,11 @@ const getInitials = (name: string, email: string) => {
 const Sidebar: React.FC<SidebarProps> = ({ activeSection, setActiveSection, isMobileOpen, setIsMobileOpen }) => {
   const { user, signOut } = useAuth();
 
-  const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+  // PocketBase v0.21: user fields are stored directly on the record.
+  // The confirmed users collection schema has a top-level 'name' field.
+  const displayName = (user as any)?.name || user?.email?.split('@')[0] || 'User';
   const displayEmail = user?.email || '';
-  const initials = getInitials(user?.user_metadata?.full_name || '', displayEmail);
+  const initials = getInitials((user as any)?.name || '', displayEmail);
 
   const handleSectionChange = (section: string) => {
     setActiveSection(section);
