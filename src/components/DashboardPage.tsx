@@ -159,17 +159,19 @@ const DashboardPage: React.FC = () => {
       sevenDaysLater.setDate(today.getDate() + 7);
       const sevenDaysStr = sevenDaysLater.toISOString().split('T')[0];
 
-      const [clientsRes, eventsRes, eventsCountRes, activitiesRes, contactsRes] = await Promise.all([
-        pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'status' }),
-        pb.collection('events').getList(1, 5, { filter: `user_id = "${user.id}" && date >= "${todayStr}" && date <= "${sevenDaysStr}"`, sort: 'date' }),
-        pb.collection('events').getList(1, 1, { filter: `user_id = "${user.id}" && date >= "${todayStr}" && date <= "${sevenDaysStr}"` }),
-        pb.collection('activities').getList(1, 5, { filter: `user_id = "${user.id}"`, sort: '-created' }),
-        pb.collection('contacts').getList(1, 1, { filter: `user_id = "${user.id}"` }),
+      // PocketBase v0.21: getFullList() returns an array directly; getList() returns a ResultList.
+      // Use single-quoted filter strings to avoid escaped-quote issues that cause 400 errors.
+      const [clientsArr, eventsPage, eventsCountPage, activitiesPage, contactsPage] = await Promise.all([
+        pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, fields: 'status' }).catch(() => null),
+        pb.collection('events').getList(1, 5, { filter: `user_id = '${user.id}' && date >= '${todayStr}' && date <= '${sevenDaysStr}'`, sort: 'date' }).catch(() => null),
+        pb.collection('events').getList(1, 1, { filter: `user_id = '${user.id}' && date >= '${todayStr}' && date <= '${sevenDaysStr}'` }).catch(() => null),
+        pb.collection('activities').getList(1, 5, { filter: `user_id = '${user.id}'`, sort: '-created' }).catch(() => null),
+        pb.collection('contacts').getList(1, 1, { filter: `user_id = '${user.id}'` }).catch(() => null),
       ]);
 
-      if (clientsRes) {
-        const counts = { active: 0, pending: 0, inactive: 0, total: clientsRes.length };
-        clientsRes.forEach((c: any) => {
+      if (clientsArr) {
+        const counts = { active: 0, pending: 0, inactive: 0, total: clientsArr.length };
+        clientsArr.forEach((c: any) => {
           if (c.status === 'active') counts.active++;
           else if (c.status === 'pending') counts.pending++;
           else counts.inactive++;
@@ -177,17 +179,18 @@ const DashboardPage: React.FC = () => {
         setClientCounts(counts);
       }
 
-      if (eventsRes.items) setUpcomingEvents(eventsRes.items as UpcomingEvent[]);
-      if (eventsCountRes.totalItems !== undefined) setUpcomingEventsCount(eventsCountRes.totalItems);
-      if (activitiesRes.items) setRecentActivities(activitiesRes.items as ActivityItem[]);
-      if (contactsRes.totalItems !== undefined) setContactCount(contactsRes.totalItems);
+      if (eventsPage?.items) setUpcomingEvents(eventsPage.items as UpcomingEvent[]);
+      if (eventsCountPage?.totalItems !== undefined) setUpcomingEventsCount(eventsCountPage.totalItems);
+      if (activitiesPage?.items) setRecentActivities(activitiesPage.items as ActivityItem[]);
+      if (contactsPage?.totalItems !== undefined) setContactCount(contactsPage.totalItems);
 
       setLoading(false);
     };
     fetchAll();
   }, [user]);
 
-  const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'there';
+  // PocketBase stores user fields directly on the record, not under user_metadata.
+  const displayName = (user as any)?.name || user?.email?.split('@')[0] || 'there';
 
   if (loading) {
     return (

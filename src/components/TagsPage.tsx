@@ -60,9 +60,9 @@ const TagModal: React.FC<TagModalProps> = ({ tag, onClose, onSave, userId }) => 
     setError('');
 
     if (tag) {
-      const { data, err } = await pb
-.collection('tags').update(tag.id, { name: name.trim(), description, color }).catch(() => null) as unknown as { data: Record<string, unknown> | null; err: unknown };
-      if (data) onSave({ ...tag, name: name.trim(), description, color });
+      // PocketBase v0.21: update() returns the record directly (or throws).
+      const saved = await pb.collection('tags').update(tag.id, { name: name.trim(), description, color }).catch(() => null);
+      if (saved) onSave({ ...tag, name: name.trim(), description, color });
     } else {
       const data = await pb.collection('tags').create({
           name: name.trim(),
@@ -202,10 +202,11 @@ const TagsPage: React.FC = () => {
     if (!user) return;
     setLoading(true);
 
-    const [{ data: tagsData }, { data: clientsData }, { data: contactsData }] = await Promise.all([
-      pb.collection('tags').getFullList({ filter: `user_id = "${user.id}"`, sort: '-created' }),
-      pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'tags' }),
-      pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'tags' }),
+    // PocketBase v0.21: getFullList() returns an array directly, not { data, error }.
+    const [tagsData, clientsData, contactsData] = await Promise.all([
+      pb.collection('tags').getFullList({ filter: `user_id = '${user.id}'`, sort: '-created' }).catch(() => null),
+      pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, fields: 'tags' }).catch(() => null),
+      pb.collection('contacts').getFullList({ filter: `user_id = '${user.id}'`, fields: 'tags' }).catch(() => null),
     ]);
 
     if (tagsData) {

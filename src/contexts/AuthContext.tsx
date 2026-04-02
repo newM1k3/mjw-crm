@@ -16,10 +16,14 @@ const AuthContext = createContext<AuthContextType>({
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Seed initial state from the persisted auth store so the UI is never
-  // momentarily unauthenticated on a hard refresh.
+  // momentarily unauthenticated on a hard refresh. This is the value used
+  // while the authRefresh call below is in-flight.
   const [user, setUser] = useState<RecordModel | null>(
     pb.authStore.isValid ? (pb.authStore.model as RecordModel) : null
   );
+  // loading stays true until we have confirmed the token is valid (or cleared
+  // it). Components that depend on `user` should wait for loading === false
+  // before issuing PocketBase queries to avoid "No user in auth store" errors.
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

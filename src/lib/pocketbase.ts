@@ -8,10 +8,21 @@ if (!pbUrl) {
 
 export const pb = new PocketBase(pbUrl);
 
-// Keep the auth store synced across tabs
-pb.authStore.onChange(() => {
-  // PocketBase handles localStorage persistence automatically
-}, true);
+// Disable PocketBase's built-in auto-cancellation of duplicate requests.
+//
+// The SDK cancels an in-flight request when an identical one is made before
+// the first completes. In a React app this fires as a spurious
+// "ClientResponseError 0: The request was autocancelled" during StrictMode
+// double-renders or when multiple components mount simultaneously and each
+// trigger the same collection fetch. Disabling it globally is the
+// recommended approach for React apps.
+//
+// See: https://github.com/pocketbase/js-sdk#auto-cancellation
+pb.autoCancellation(false);
+
+// Keep the auth store synced across tabs.
+// PocketBase handles localStorage persistence automatically.
+pb.authStore.onChange(() => {}, true);
 
 /**
  * Ensures the current auth token is valid before performing a write operation.
@@ -38,7 +49,7 @@ export async function ensureAuth(): Promise<void> {
     await pb.collection('users').authRefresh();
   } catch {
     // If the refresh itself fails the token is truly expired — clear it so the
-    // AuthContext listener redirects the user to the login screen.
+    // AuthContext onChange listener redirects the user to the login screen.
     pb.authStore.clear();
     throw new Error('Session expired. Please sign in again.');
   }

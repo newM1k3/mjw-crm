@@ -35,8 +35,11 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
   const fetchTemplates = async () => {
     if (!user) return;
     setLoading(true);
-    const { data } = await pb
-.collection('email_templates').getFullList({ filter: `user_id = "${user.id}"`, sort: '-updated' });
+    // PocketBase v0.21: getFullList() returns an array directly, not { data, error }.
+    const data = await pb
+      .collection('email_templates')
+      .getFullList({ filter: `user_id = '${user.id}'`, sort: '-updated' })
+      .catch(() => null);
     if (data) setTemplates(data as EmailTemplate[]);
     setLoading(false);
   };
@@ -61,12 +64,11 @@ const EmailTemplatesModal: React.FC<EmailTemplatesModalProps> = ({ onClose, onSe
     const payload = { ...form, plain_content: plainFromHtml, updated_at: new Date().toISOString() };
 
     if (view === 'edit' && editing) {
-      const { data } = await pb
-.collection('email_templates').update(editing.id, payload).catch(() => null);
-      if (data) setTemplates(prev => prev.map(t => t.id === editing.id ? data as EmailTemplate : t));
+      // PocketBase v0.21: update() returns the record directly, not { data, error }.
+      const saved = await pb.collection('email_templates').update(editing.id, payload).catch(() => null);
+      if (saved) setTemplates(prev => prev.map(t => t.id === editing.id ? saved as EmailTemplate : t));
     } else {
       const data = await pb.collection('email_templates').create({ ...payload, user_id: user.id }).catch(() => null);
-    const dbError = data ? null : 'Failed to create record';
       if (data) setTemplates(prev => [data as EmailTemplate, ...prev]);
     }
 
