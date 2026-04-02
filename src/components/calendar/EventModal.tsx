@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, MapPin, FileText, Link, User, Trash2 } from 'lucide-react';
-import { pb } from '../../lib/pocketbase';
+import { pb, ensureAuth } from '../../lib/pocketbase';
 import { useAuth } from '../../contexts/AuthContext';
 import { logActivity } from '../../lib/activity';
 import type { CalendarEvent } from './types';
@@ -60,12 +60,16 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
       setForm({ ...defaultForm, date: initialDate || '' });
     }
 
+    // Load clients and contacts for association dropdowns.
+    // PocketBase v0.21 getFullList() returns an array directly (not { data, error }).
     Promise.all([
       pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }),
       pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }),
-    ]).then(([{ data: cData }, { data: ctData }]) => {
-      if (cData) setClients(cData as Client[]);
-      if (ctData) setContacts(ctData as Contact[]);
+    ]).then(([clientList, contactList]) => {
+      setClients(clientList as Client[]);
+      setContacts(contactList as Contact[]);
+    }).catch(() => {
+      // Non-critical — dropdowns will just be empty if this fails.
     });
   }, [isOpen, event, initialDate, user]);
 
@@ -83,66 +87,67 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
     setSaving(true);
     setError('');
 
-    const payload = {
-      user_id: user.id,
-      title: form.title,
-      date: form.date,
-      start_time: form.start_time || null,
-      end_time: form.end_time || null,
-      time: form.start_time || '',
-      duration: form.start_time && form.end_time ? `${form.start_time}–${form.end_time}` : '',
-      type: form.type,
-      description: form.description,
-      location: form.location,
-      client_id: form.client_id || null,
-      contact_id: form.contact_id || null,
-    };
+    try {
+      await ensureAuth();
 
-    let savedData: CalendarEvent | null = null;
-    let saveError: { message: string } | null = null;
+      const payload = {
+        user_id: user.id,
+        title: form.title,
+        date: form.date,
+        start_time: form.start_time || null,
+        end_time: form.end_time || null,
+        time: form.start_time || '',
+        duration: form.start_time && form.end_time ? `${form.start_time}–${form.end_time}` : '',
+        type: form.type,
+        description: form.description,
+        location: form.location,
+        client_id: form.client_id || null,
+        contact_id: form.contact_id || null,
+      };
 
-    if (event) {
-      const res = await pb
-.collection('events').update(event.id, payload).catch(() => null);
-      savedData = res.data as CalendarEvent;
-      saveError = res.error;
-    } else {
-      const res = await pb
-.collection('events').create(payload).catch(() => null);
-      savedData = res.data as CalendarEvent;
-      saveError = res.error;
+      let savedEvent: CalendarEvent;
+
+      if (event) {
+        // Update existing event
+        savedEvent = await pb.collection('events').update(event.id, payload) as CalendarEvent;
+      } else {
+        // Create new event
+        savedEvent = await pb.collection('events').create(payload) as CalendarEvent;
+
+        await logActivity({
+          userId: user.id,
+          type: 'event_added',
+          title: `Event created: ${savedEvent.title}`,
+          description: savedEvent.date ? `on ${savedEvent.date}` : '',
+          entityId: savedEvent.id,
+          entityType: 'event',
+        });
+      }
+
+      onSaved(savedEvent);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save event. Please try again.');
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-
-    if (saveError || !savedData) {
-      setError('Failed to save event. Please try again.');
-      return;
-    }
-
-    if (!event) {
-      await logActivity({
-        userId: user.id,
-        type: 'event_added',
-        title: `Event created: ${savedData.title}`,
-        description: savedData.date ? `on ${savedData.date}` : '',
-        entityId: savedData.id,
-        entityType: 'event',
-      });
-    }
-
-    onSaved(savedData);
-    onClose();
   };
 
   const handleDelete = async () => {
     if (!event || !user) return;
     setDeleting(true);
-    const deleteError = await pb.collection('events').delete(event.id).then(() => null).catch(e => e);
-    setDeleting(false);
-    if (deleteError) { setError('Failed to delete event. Please try again.'); return; }
-    onDeleted?.(event.id);
-    onClose();
+    setError('');
+
+    try {
+      await ensureAuth();
+      await pb.collection('events').delete(event.id);
+      onDeleted?.(event.id);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete event. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (

@@ -23,12 +23,15 @@ const CalendarPage: React.FC = () => {
   const [deleteConfirmEvent, setDeleteConfirmEvent] = useState<CalendarEvent | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // PocketBase v0.21: getFullList() returns an array directly, not { data, error }.
   const fetchEvents = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await pb
-.collection('events').getFullList({ filter: `user_id = "${user.id}"`, sort: 'date' });
-    if (!error && data) setEvents(data as CalendarEvent[]);
+    const data = await pb
+      .collection('events')
+      .getFullList({ filter: `user_id = "${user.id}"`, sort: 'date' })
+      .catch(() => null);
+    if (data) setEvents(data as CalendarEvent[]);
     setLoading(false);
   }, [user]);
 
@@ -36,19 +39,20 @@ const CalendarPage: React.FC = () => {
 
   useEffect(() => {
     if (!user) return;
+    // PocketBase v0.21: getFullList() returns an array directly.
     Promise.all([
-      pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name, company' }),
-      pb.collection('contacts').getFullList({ filter: `user_id = \"${user.id}\"`, fields: 'id, name' }),
-    ]).then(([{ data: cl }, { data: co }]) => {
-      if (cl) {
-        const map: Record<string, string> = {};
-        (cl as { id: string; name: string; company: string }[]).forEach(c => {
-          map[c.id] = c.company ? `${c.name} — ${c.company}` : c.name;
-        });
-        setClientNames(map);
-      }
-      if (co) setContactNames(Object.fromEntries((co as { id: string; name: string }[]).map(c => [c.id, c.name])));
-    });
+      pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, fields: 'id,name,company' }),
+      pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"`, fields: 'id,name' }),
+    ]).then(([clientList, contactList]) => {
+      const map: Record<string, string> = {};
+      (clientList as { id: string; name: string; company: string }[]).forEach(c => {
+        map[c.id] = c.company ? `${c.name} — ${c.company}` : c.name;
+      });
+      setClientNames(map);
+      setContactNames(
+        Object.fromEntries((contactList as { id: string; name: string }[]).map(c => [c.id, c.name]))
+      );
+    }).catch(() => {});
   }, [user]);
 
   const handleSaved = (event: CalendarEvent) => {
@@ -252,7 +256,6 @@ const CalendarPage: React.FC = () => {
                                   className={`hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium truncate cursor-pointer ${config.bg} ${config.text} hover:opacity-80 transition-opacity`}
                                   title={event.title}
                                 >
-                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`} />
                                   <span className="truncate">{event.title}</span>
                                 </div>
                               );
