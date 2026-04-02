@@ -64,7 +64,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!user) return;
     try {
       const records = await pb.collection('user_settings').getList(1, 1, {
-        filter: `user_id = "${user.id}"`,
+        filter: `user_id = '${user.id}'`,
       });
       if (records.items.length > 0) {
         const data = records.items[0];

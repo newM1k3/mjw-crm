@@ -60,7 +60,7 @@ const EditContactModal: React.FC<EditContactModalProps> = ({ contact, onClose, o
     setError('');
 
     pb.collection('clients')
-      .getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' })
+      .getFullList({ filter: `user_id = '${user.id}'`, sort: 'name' })
       .then(data => { if (data) setClients(data as Client[]); })
       .catch(() => {});
   }, [contact, user]);

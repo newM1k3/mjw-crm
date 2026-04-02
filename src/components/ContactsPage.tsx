@@ -48,12 +48,12 @@ const ContactsPage: React.FC = () => {
   const fetchContacts = async () => {
     if (!user) return;
     setLoading(true);
-    const data = await pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"`, sort: '-created' }).catch(() => null);
+    const data = await pb.collection('contacts').getFullList({ filter: `user_id = '${user.id}'`, sort: '-created' }).catch(() => null);
     if (data) {
       const typed = data as Contact[];
       setContacts(typed);
       const tagSet = new Set<string>();
-      typed.forEach(c => c.tags.forEach(t => tagSet.add(t)));
+      typed.forEach(c => (c.tags || []).forEach(t => tagSet.add(t)));
       setAvailableTags(Array.from(tagSet).sort());
     }
     setLoading(false);
@@ -73,7 +73,7 @@ const ContactsPage: React.FC = () => {
 
   const handleAdded = (newContact: Contact) => {
     setContacts(prev => [newContact, ...prev]);
-    newContact.tags.forEach(t => {
+    (newContact.tags || []).forEach(t => {
       setAvailableTags(prev => prev.includes(t) ? prev : [...prev, t].sort());
     });
   };
@@ -82,7 +82,7 @@ const ContactsPage: React.FC = () => {
     setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
     if (selectedContact?.id === updated.id) setSelectedContact(updated);
     const tagSet = new Set<string>();
-    [...contacts.map(c => c.id === updated.id ? updated : c)].forEach(c => c.tags.forEach(t => tagSet.add(t)));
+    [...contacts.map(c => c.id === updated.id ? updated : c)].forEach(c => (c.tags || []).forEach(t => tagSet.add(t)));
     setAvailableTags(Array.from(tagSet).sort());
   };
 
@@ -271,9 +271,9 @@ const ContactsPage: React.FC = () => {
                       )}
                     </div>
 
-                    {contact.tags.length > 0 && (
+                    {(contact.tags || []).length > 0 && (
                       <div className="flex flex-wrap gap-1 mb-4">
-                        {contact.tags.map((tag, i) => (
+                        {(contact.tags || []).map((tag, i) => (
                           <TagChip key={i} name={tag} color={tagColors[tag]} />
                         ))}
                       </div>

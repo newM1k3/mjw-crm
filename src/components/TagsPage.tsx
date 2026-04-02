@@ -214,7 +214,7 @@ const TagsPage: React.FC = () => {
       if (clientsData) {
         clientsData.forEach(client => {
           if (Array.isArray(client.tags)) {
-            client.tags.forEach((tagName: string) => {
+            (client.tags || []).forEach((tagName: string) => {
               clientCountMap[tagName] = (clientCountMap[tagName] || 0) + 1;
             });
           }
@@ -225,7 +225,7 @@ const TagsPage: React.FC = () => {
       if (contactsData) {
         contactsData.forEach(contact => {
           if (Array.isArray(contact.tags)) {
-            contact.tags.forEach((tagName: string) => {
+            (contact.tags || []).forEach((tagName: string) => {
               contactCountMap[tagName] = (contactCountMap[tagName] || 0) + 1;
             });
           }

@@ -330,7 +330,7 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
                         <TagChip key={tag} tag={tag} colorKey={tagColors[tag]} />
                       ))}
                       {(client.tags || []).length > 3 && (
-                        <span className="text-xs text-gray-400">+{client.tags.length - 3}</span>
+                        <span className="text-xs text-gray-400">+{(client.tags || []).length - 3}</span>
                       )}
                     </div>
                   </td>
@@ -368,7 +368,7 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
               </div>
               {(client.tags || []).length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1.5">
-                  {client.tags.slice(0, 4).map(tag => (
+                  {(client.tags || []).slice(0, 4).map(tag => (
                     <TagChip key={tag} tag={tag} colorKey={tagColors[tag]} />
                   ))}
                 </div>

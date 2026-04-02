@@ -64,7 +64,7 @@ const InvoicesPage: React.FC = () => {
     setError(null);
     try {
       const records = await pb.collection('invoices').getFullList<Invoice>({
-        filter: `user_id = "${user.id}"`,
+        filter: `user_id = '${user.id}'`,
         sort: '-created',
       });
       setInvoices(records);

@@ -63,8 +63,8 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
     // Load clients and contacts for association dropdowns.
     // PocketBase v0.21 getFullList() returns an array directly (not { data, error }).
     Promise.all([
-      pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }),
-      pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }),
+      pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, sort: 'name' }),
+      pb.collection('contacts').getFullList({ filter: `user_id = '${user.id}'`, sort: 'name' }),
     ]).then(([clientList, contactList]) => {
       setClients(clientList as Client[]);
       setContacts(contactList as Contact[]);

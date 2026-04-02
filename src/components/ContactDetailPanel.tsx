@@ -160,11 +160,11 @@ const ContactDetailPanel: React.FC<ContactDetailPanelProps> = ({ contact, onClos
                 </div>
               )}
 
-              {contact.tags.length > 0 && (
+              {(contact.tags || []).length > 0 && (
                 <div className="px-6 py-4 border-b border-gray-100">
                   <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Tags</h3>
                   <div className="flex flex-wrap gap-1.5">
-                    {contact.tags.map((tag, i) => (
+                    {(contact.tags || []).map((tag, i) => (
                       <TagChip key={i} name={tag} color={tagColors[tag]} />
                     ))}
                   </div>

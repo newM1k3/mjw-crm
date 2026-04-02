@@ -29,7 +29,7 @@ const CalendarPage: React.FC = () => {
     setLoading(true);
     const data = await pb
       .collection('events')
-      .getFullList({ filter: `user_id = "${user.id}"`, sort: 'date' })
+      .getFullList({ filter: `user_id = '${user.id}'`, sort: 'date' })
       .catch(() => null);
     if (data) setEvents(data as CalendarEvent[]);
     setLoading(false);
@@ -41,8 +41,8 @@ const CalendarPage: React.FC = () => {
     if (!user) return;
     // PocketBase v0.21: getFullList() returns an array directly.
     Promise.all([
-      pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, fields: 'id,name,company' }),
-      pb.collection('contacts').getFullList({ filter: `user_id = "${user.id}"`, fields: 'id,name' }),
+      pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, fields: 'id,name,company' }),
+      pb.collection('contacts').getFullList({ filter: `user_id = '${user.id}'`, fields: 'id,name' }),
     ]).then(([clientList, contactList]) => {
       const map: Record<string, string> = {};
       (clientList as { id: string; name: string; company: string }[]).forEach(c => {
