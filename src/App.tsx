@@ -190,6 +190,9 @@ function App() {
         onNewEvent={() => setFabNewEventOpen(true)}
       />
 
+      {/* FAB: Add Client — AddClientModal now owns the PocketBase create call.
+          On success it returns the new record; we close the modal and refresh
+          the ClientList so the new entry appears immediately. */}
       <AddClientModal
         isOpen={fabAddClientOpen}
         onClose={() => setFabAddClientOpen(false)}

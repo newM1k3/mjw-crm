@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Star, Phone, Mail, Plus, FilterX, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import AddClientModal from './AddClientModal';
 import TagChip from './TagChip';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 import { useTagColors } from '../lib/useTags';
@@ -70,8 +70,7 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
     if (!user) return;
     setLoading(true);
     const data = await pb.collection('clients').getFullList({ filter: `user_id = \"${user.id}\"` }).catch(() => null);
-    const error = null;
-    if (!error && data) {
+    if (data) {
       const typedData = data as Client[];
       setClients(typedData);
       const tagSet = new Set<string>();
@@ -90,23 +89,15 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
     }
   }, [registerRefresh]);
 
-  const handleAddClient = async (formData: Omit<Client, 'id'>) => {
-    if (!user) return;
-    const newClient = await pb.collection('clients').create({ ...formData, user_id: user.id }).catch(() => null) as Client | null;
-    if (newClient) {
-      setClients(prev => [newClient, ...prev]);
-      newClient.tags.forEach(t => {
-        setAvailableTags(prev => prev.includes(t) ? prev : [...prev, t].sort());
-      });
-      await logActivity({
-        userId: user.id,
-        type: 'client_added',
-        title: `Client added: ${newClient.name}`,
-        description: newClient.company ? `at ${newClient.company}` : '',
-        entityId: newClient.id,
-        entityType: 'client',
-      });
-    }
+  /**
+   * Called by AddClientModal with the already-created Client record.
+   * We simply prepend it to local state — no second PocketBase call needed.
+   */
+  const handleAddClient = (newClient: Client) => {
+    setClients(prev => [newClient, ...prev]);
+    newClient.tags.forEach(t => {
+      setAvailableTags(prev => prev.includes(t) ? prev : [...prev, t].sort());
+    });
   };
 
   const handleSort = (field: SortField) => {
@@ -263,179 +254,136 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
 
       <div className="flex-1 overflow-auto">
         {loading ? (
-          <div className="flex items-center justify-center py-16">
+          <div className="flex items-center justify-center h-48">
             <div className="w-8 h-8 border-2 border-primary-700 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : pageClients.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+            <p className="text-sm">{hasFilters ? 'No clients match your filters.' : 'No clients yet. Add your first client!'}</p>
           </div>
         ) : (
           <>
-            <table className="w-full hidden lg:table">
-              <thead className="sticky top-0 bg-gray-50 border-b border-gray-200 z-10">
-                <tr>
-                  <ThSort field="name" label="Client" />
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
-                  <ThSort field="company" label="Company" />
-                  <ThSort field="created_at" label="Date Added" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {pageClients.map(client => {
-                  const status = statusConfig[client.status] || statusConfig.active;
-                  const isSelected = selectedClientId === client.id;
-                  return (
+            <div className="hidden md:block">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                  <tr>
+                    <ThSort field="name" label="Name" />
+                    <ThSort field="company" label="Company" />
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
+                    <ThSort field="created_at" label="Added" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {pageClients.map(client => (
                     <tr
                       key={client.id}
                       onClick={() => onSelectClient(client)}
-                      className={`cursor-pointer transition-colors duration-150 ${isSelected ? 'bg-primary-50' : 'hover:bg-gray-50'}`}
+                      className={`cursor-pointer transition-colors duration-150 hover:bg-blue-50 ${selectedClientId === client.id ? 'bg-blue-50 border-l-2 border-primary-700' : ''}`}
                     >
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${getAvatarColor(client.name)}`}>
-                            <span className="text-xs font-medium text-white">
-                              {client.name.split(' ').map(n => n[0]).join('')}
-                            </span>
+                          <div className={`w-8 h-8 rounded-full ${getAvatarColor(client.name)} flex items-center justify-center flex-shrink-0`}>
+                            <span className="text-xs font-medium text-white">{client.name.charAt(0).toUpperCase()}</span>
                           </div>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm font-medium text-gray-900">{client.name}</span>
-                              {client.starred && <Star className="w-3.5 h-3.5 text-yellow-500 fill-current" />}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                            <Mail className="w-3 h-3 text-gray-400" />{client.email}
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                            <Phone className="w-3 h-3 text-gray-400" />{client.phone}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`md-chip ${status.bg} ${status.text}`}>{status.label}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-wrap gap-1">
-                          {client.tags.map((tag, i) => (
-                            <TagChip key={i} name={tag} color={tagColors[tag]} />
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.company}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
-                        {client.created_at ? new Date(client.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-
-            <div className="lg:hidden divide-y divide-gray-100">
-              {pageClients.map(client => {
-                const status = statusConfig[client.status] || statusConfig.active;
-                const isSelected = selectedClientId === client.id;
-                return (
-                  <div
-                    key={client.id}
-                    onClick={() => onSelectClient(client)}
-                    className={`px-4 py-4 cursor-pointer transition-colors duration-150 ${isSelected ? 'bg-primary-50' : 'hover:bg-gray-50'}`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${getAvatarColor(client.name)}`}>
-                          <span className="text-sm font-medium text-white">{client.name.split(' ').map(n => n[0]).join('')}</span>
-                        </div>
-                        <div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-medium text-gray-900">{client.name}</span>
-                            {client.starred && <Star className="w-3.5 h-3.5 text-yellow-500 fill-current" />}
+                            {client.starred && <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                           </div>
-                          <div className="text-xs text-gray-500">{client.company}</div>
                         </div>
-                      </div>
-                      <span className={`md-chip ${status.bg} ${status.text}`}>{status.label}</span>
-                    </div>
-                    <div className="space-y-1 mb-2" style={{ paddingLeft: '52px' }}>
-                      <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                        <Mail className="w-3 h-3 text-gray-400" />
-                        <span className="truncate">{client.email}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                        <Phone className="w-3 h-3 text-gray-400" />{client.phone}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1" style={{ paddingLeft: '52px' }}>
-                      {client.tags.map((tag, i) => (
-                        <TagChip key={i} name={tag} color={tagColors[tag]} />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{client.company}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col gap-0.5">
+                          <a href={`mailto:${client.email}`} onClick={e => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-700 transition-colors">
+                            <Mail className="w-3 h-3" />{client.email}
+                          </a>
+                          <a href={`tel:${client.phone}`} onClick={e => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-700 transition-colors">
+                            <Phone className="w-3 h-3" />{client.phone}
+                          </a>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusConfig[client.status]?.bg} ${statusConfig[client.status]?.text}`}>
+                          {statusConfig[client.status]?.label}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1">
+                          {(client.tags || []).slice(0, 3).map(tag => (
+                            <TagChip key={tag} tag={tag} colorKey={tagColors[tag]} />
+                          ))}
+                          {(client.tags || []).length > 3 && (
+                            <span className="text-xs text-gray-400">+{client.tags.length - 3}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-400">
+                        {client.created_at ? new Date(client.created_at).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
-            {filteredAndSorted.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
-                  <Search className="w-8 h-8 text-gray-400" />
+            <div className="md:hidden divide-y divide-gray-100">
+              {pageClients.map(client => (
+                <div
+                  key={client.id}
+                  onClick={() => onSelectClient(client)}
+                  className={`p-4 cursor-pointer transition-colors duration-150 hover:bg-blue-50 ${selectedClientId === client.id ? 'bg-blue-50 border-l-2 border-primary-700' : ''}`}
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className={`w-9 h-9 rounded-full ${getAvatarColor(client.name)} flex items-center justify-center flex-shrink-0`}>
+                      <span className="text-sm font-medium text-white">{client.name.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium text-gray-900 truncate">{client.name}</p>
+                        {client.starred && <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 flex-shrink-0" />}
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{client.company}</p>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusConfig[client.status]?.bg} ${statusConfig[client.status]?.text}`}>
+                      {statusConfig[client.status]?.label}
+                    </span>
+                  </div>
+                  {(client.tags || []).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {client.tags.slice(0, 4).map(tag => (
+                        <TagChip key={tag} tag={tag} colorKey={tagColors[tag]} />
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <p className="text-base font-medium text-gray-900">
-                  {clients.length === 0 ? 'No clients yet' : 'No clients found'}
-                </p>
-                <p className="text-sm text-gray-500 mt-1">
-                  {clients.length === 0 ? 'Add your first client to get started' : 'Try adjusting your search or filters'}
-                </p>
-              </div>
-            )}
+              ))}
+            </div>
           </>
         )}
       </div>
 
-      {!loading && filteredAndSorted.length > 0 && (
-        <div className="border-t border-gray-200 px-6 py-3 flex items-center justify-between bg-white flex-shrink-0">
+      {totalPages > 1 && (
+        <div className="px-6 py-3 border-t border-gray-200 bg-white flex items-center justify-between flex-shrink-0">
           <p className="text-xs text-gray-500">
-            Showing <span className="font-medium text-gray-700">{pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredAndSorted.length)}</span> of <span className="font-medium text-gray-700">{filteredAndSorted.length}</span> clients
+            Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredAndSorted.length)} of {filteredAndSorted.length}
           </p>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={safePage === 1}
-              className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+              className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .filter(p => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
-              .reduce<(number | '...')[]>((acc, p, idx, arr) => {
-                if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push('...');
-                acc.push(p);
-                return acc;
-              }, [])
-              .map((item, i) =>
-                item === '...'
-                  ? <span key={`ellipsis-${i}`} className="px-2 text-xs text-gray-400">…</span>
-                  : (
-                    <button
-                      key={item}
-                      onClick={() => setPage(item as number)}
-                      className={`w-7 h-7 rounded text-xs font-medium transition-colors duration-150 ${
-                        safePage === item
-                          ? 'bg-primary-700 text-white'
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      {item}
-                    </button>
-                  )
-              )}
+            <span className="text-xs text-gray-600 px-2">
+              {safePage} / {totalPages}
+            </span>
             <button
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={safePage === totalPages}
-              className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+              className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -446,7 +394,10 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
       <AddClientModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        onAddClient={handleAddClient}
+        onAddClient={(newClient) => {
+          handleAddClient(newClient);
+          setIsAddModalOpen(false);
+        }}
       />
     </div>
   );

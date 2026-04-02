@@ -15,25 +15,36 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Seed initial state from the persisted auth store so the UI is never
+  // momentarily unauthenticated on a hard refresh.
   const [user, setUser] = useState<RecordModel | null>(
-    pb.authStore.isValid ? pb.authStore.model as RecordModel : null
+    pb.authStore.isValid ? (pb.authStore.model as RecordModel) : null
   );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Validate the persisted token against PocketBase on mount.
+    // If the token is still valid this silently refreshes it; if it has
+    // expired the catch block clears the store and forces a re-login.
     if (pb.authStore.isValid && pb.authStore.model) {
-      pb.collection('users').authRefresh().then(({ record }) => {
-        setUser(record);
-      }).catch(() => {
-        pb.authStore.clear();
-        setUser(null);
-      }).finally(() => {
-        setLoading(false);
-      });
+      pb.collection('users')
+        .authRefresh()
+        .then(({ record }) => {
+          setUser(record);
+        })
+        .catch(() => {
+          pb.authStore.clear();
+          setUser(null);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
     } else {
       setLoading(false);
     }
 
+    // Keep React state in sync whenever the auth store changes (e.g. after
+    // login, logout, or a token refresh triggered by ensureAuth()).
     const unsubscribe = pb.authStore.onChange((_token, model) => {
       setUser(model as RecordModel | null);
     });

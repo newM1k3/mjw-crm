@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Building, Mail, Phone, MapPin, Briefcase, Tag, Link } from 'lucide-react';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import TagInput from './TagInput';
 
@@ -59,7 +59,10 @@ const EditContactModal: React.FC<EditContactModalProps> = ({ contact, onClose, o
     });
     setError('');
 
-    pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }).then(data => { if (data) setClients(data as Client[]); }).catch(() => {});
+    pb.collection('clients')
+      .getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' })
+      .then(data => { if (data) setClients(data as Client[]); })
+      .catch(() => {});
   }, [contact, user]);
 
   if (!contact) return null;
@@ -73,29 +76,29 @@ const EditContactModal: React.FC<EditContactModalProps> = ({ contact, onClose, o
     setSaving(true);
     setError('');
 
-    const updates = {
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      company: formData.company,
-      position: formData.position,
-      location: formData.location,
-      tags: formData.tags,
-      client_id: formData.client_id || null,
-    };
+    try {
+      await ensureAuth();
 
-    const data = await pb.collection('contacts').update(contact.id, updates).catch(() => null);
-    const dbError = data ? null : 'update failed';
+      const updates = {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        company: formData.company,
+        position: formData.position,
+        location: formData.location,
+        tags: formData.tags,
+        client_id: formData.client_id || null,
+      };
 
-    setSaving(false);
+      const saved = await pb.collection('contacts').update(contact.id, updates) as Contact;
 
-    if (dbError) {
-      setError('Failed to save changes. Please try again.');
-      return;
+      onSaved(saved);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save changes. Please try again.');
+    } finally {
+      setSaving(false);
     }
-
-    onSaved(data as Contact);
-    onClose();
   };
 
   return (

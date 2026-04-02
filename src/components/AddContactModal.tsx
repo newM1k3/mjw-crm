@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Building, Mail, Phone, MapPin, Briefcase, Tag, Link } from 'lucide-react';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 import TagInput from './TagInput';
@@ -50,7 +50,10 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
     if (!isOpen || !user) return;
     setFormData({ name: '', email: '', phone: '', company: '', position: '', location: '', tags: [], client_id: '' });
     setError('');
-    pb.collection('clients').getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' }).then(data => { if (data) setClients(data as Client[]); }).catch(() => {});
+    pb.collection('clients')
+      .getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' })
+      .then(data => { if (data) setClients(data as Client[]); })
+      .catch(() => {});
   }, [isOpen, user]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -63,41 +66,40 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
     setSaving(true);
     setError('');
 
-    const payload = {
-      user_id: user.id,
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      company: formData.company,
-      position: formData.position,
-      location: formData.location,
-      tags: formData.tags,
-      starred: false,
-      client_id: formData.client_id || null,
-    };
+    try {
+      await ensureAuth();
 
-    const data = await pb.collection('contacts').create(payload).catch(() => null);
-    const dbError = data ? null : 'Failed to create record';
+      const payload = {
+        user_id: user.id,
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        company: formData.company,
+        position: formData.position,
+        location: formData.location,
+        tags: formData.tags,
+        starred: false,
+        client_id: formData.client_id || null,
+      };
 
-    setSaving(false);
+      const newContact = await pb.collection('contacts').create(payload) as Contact;
 
-    if (dbError) {
-      setError('Failed to save contact. Please try again.');
-      return;
+      await logActivity({
+        userId: user.id,
+        type: 'contact_added',
+        title: `Contact added: ${newContact.name}`,
+        description: newContact.company ? `at ${newContact.company}` : '',
+        entityId: newContact.id,
+        entityType: 'contact',
+      });
+
+      onAdded(newContact);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save contact. Please try again.');
+    } finally {
+      setSaving(false);
     }
-
-    const newContact = data as Contact;
-    await logActivity({
-      userId: user.id,
-      type: 'contact_added',
-      title: `Contact added: ${newContact.name}`,
-      description: newContact.company ? `at ${newContact.company}` : '',
-      entityId: newContact.id,
-      entityType: 'contact',
-    });
-
-    onAdded(newContact);
-    onClose();
   };
 
   if (!isOpen) return null;

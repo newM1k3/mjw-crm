@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Building, Mail, Phone, Tag } from 'lucide-react';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 import TagInput from './TagInput';
@@ -61,36 +61,38 @@ const EditClientModal: React.FC<EditClientModalProps> = ({ client, onClose, onSa
     setSaving(true);
     setError('');
 
-    const updates = {
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      company: formData.company,
-      status: formData.status,
-      tags: formData.tags,
-    };
+    try {
+      await ensureAuth();
 
-    const saved = await pb.collection('clients').update(client.id, updates).catch(() => null) as Client | null;
+      const updates = {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        company: formData.company,
+        status: formData.status,
+        tags: formData.tags,
+      };
 
-    setSaving(false);
+      const saved = await pb.collection('clients').update(client.id, updates) as Client;
 
-    if (!saved) {
-      setError('Failed to save changes. Please try again.');
-      return;
+      if (user) {
+        await logActivity({
+          userId: user.id,
+          type: 'client_edited',
+          title: `Client updated: ${saved.name}`,
+          description: saved.company ? `at ${saved.company}` : '',
+          entityId: saved.id,
+          entityType: 'client',
+        });
+      }
+
+      onSaved(saved);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save changes. Please try again.');
+    } finally {
+      setSaving(false);
     }
-    if (user) {
-      await logActivity({
-        userId: user.id,
-        type: 'client_edited',
-        title: `Client updated: ${saved.name}`,
-        description: saved.company ? `at ${saved.company}` : '',
-        entityId: saved.id,
-        entityType: 'client',
-      });
-    }
-
-    onSaved(saved);
-    onClose();
   };
 
   return (

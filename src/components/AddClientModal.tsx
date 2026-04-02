@@ -1,14 +1,33 @@
 import React, { useState } from 'react';
 import { X, User, Building, Mail, Phone, Tag } from 'lucide-react';
 import TagInput from './TagInput';
+import { pb, ensureAuth } from '../lib/pocketbase';
+import { useAuth } from '../contexts/AuthContext';
+import { logActivity } from '../lib/activity';
+
+interface Client {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+  status: 'active' | 'inactive' | 'pending';
+  tags: string[];
+  last_contact: string;
+  starred: boolean;
+}
 
 interface AddClientModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddClient: (client: any) => void;
+  /** Called with the newly created Client record on success. */
+  onAddClient: (client: Client) => void;
 }
 
 const AddClientModal: React.FC<AddClientModalProps> = ({ isOpen, onClose, onAddClient }) => {
+  const { user } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -18,20 +37,47 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ isOpen, onClose, onAddC
     tags: [] as string[],
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onAddClient({
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      company: formData.company,
-      status: formData.status,
-      tags: formData.tags,
-      last_contact: new Date().toISOString().split('T')[0],
-      starred: false,
-    });
-    setFormData({ name: '', email: '', phone: '', company: '', status: 'active', tags: [] });
-    onClose();
+    if (!user) return;
+
+    setSaving(true);
+    setError('');
+
+    try {
+      await ensureAuth();
+
+      const payload = {
+        user_id: user.id,
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        company: formData.company,
+        status: formData.status,
+        tags: formData.tags,
+        last_contact: new Date().toISOString().split('T')[0],
+        starred: false,
+      };
+
+      const newClient = await pb.collection('clients').create(payload) as Client;
+
+      await logActivity({
+        userId: user.id,
+        type: 'client_added',
+        title: `Client added: ${newClient.name}`,
+        description: newClient.company ? `at ${newClient.company}` : '',
+        entityId: newClient.id,
+        entityType: 'client',
+      });
+
+      setFormData({ name: '', email: '', phone: '', company: '', status: 'active', tags: [] });
+      onAddClient(newClient);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save client. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -54,6 +100,12 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ isOpen, onClose, onAddC
         </div>
 
         <form onSubmit={handleSubmit} className="p-6">
+          {error && (
+            <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">
+              {error}
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
@@ -153,15 +205,17 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ isOpen, onClose, onAddC
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded hover:bg-gray-50 transition-colors duration-200"
+              disabled={saving}
+              className="flex-1 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded hover:bg-gray-50 transition-colors duration-200 disabled:opacity-60"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 py-2.5 bg-primary-700 text-white text-sm font-medium rounded hover:bg-primary-800 transition-colors duration-200 md-elevation-1"
+              disabled={saving}
+              className="flex-1 py-2.5 bg-primary-700 text-white text-sm font-medium rounded hover:bg-primary-800 transition-colors duration-200 md-elevation-1 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Add Client
+              {saving ? 'Saving...' : 'Add Client'}
             </button>
           </div>
         </form>
