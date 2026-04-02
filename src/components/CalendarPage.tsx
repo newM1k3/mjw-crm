@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Clock, MapPin, User, Link } from 'lucide-react';
 import { pb } from '../lib/pocketbase';
 import { useAuth } from '../contexts/AuthContext';
-import { CalendarEvent, eventTypeConfig, monthNames, shortDayNames, formatTime, toDateStr } from './calendar/types';
+import { CalendarEvent, eventTypeConfig, monthNames, shortDayNames, formatTime, toDateStr, getEventDate } from './calendar/types';
 import EventModal from './calendar/EventModal';
 import EventDetailPanel from './calendar/EventDetailPanel';
 import WeekView from './calendar/WeekView';
@@ -29,7 +29,7 @@ const CalendarPage: React.FC = () => {
     setLoading(true);
     const data = await pb
       .collection('events')
-      .getFullList({ filter: `user_id = '${user.id}'`, sort: 'date' })
+      .getFullList({ filter: `user_id = '${user.id}'`, sort: 'start_time' })
       .catch(() => null);
     if (data) setEvents(data as CalendarEvent[]);
     setLoading(false);
@@ -59,7 +59,7 @@ const CalendarPage: React.FC = () => {
     setEvents(prev => {
       const exists = prev.find(e => e.id === event.id);
       const next = exists ? prev.map(e => e.id === event.id ? event : e) : [...prev, event];
-      return next.sort((a, b) => a.date.localeCompare(b.date));
+      return next.sort((a, b) => getEventDate(a).localeCompare(getEventDate(b)));
     });
   };
 
@@ -147,7 +147,7 @@ const CalendarPage: React.FC = () => {
 
   const getEventsForDate = (day: number) => {
     const ds = toDateStr(currentDate.getFullYear(), currentDate.getMonth(), day);
-    return events.filter(e => e.date === ds);
+    return events.filter(e => getEventDate(e) === ds);
   };
 
   const today = new Date();
@@ -159,7 +159,7 @@ const CalendarPage: React.FC = () => {
   const isToday = (day: number) =>
     toDateStr(currentDate.getFullYear(), currentDate.getMonth(), day) === todayStr;
 
-  const upcomingEvents = events.filter(e => e.date >= todayStr && e.date <= sevenDaysStr);
+  const upcomingEvents = events.filter(e => getEventDate(e) >= todayStr && getEventDate(e) <= sevenDaysStr);
 
   return (
     <div className="flex-1 flex flex-col bg-white overflow-hidden">
@@ -327,7 +327,7 @@ const CalendarPage: React.FC = () => {
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5 text-xs text-gray-500">
                       <Clock className="w-3 h-3 text-gray-400 flex-shrink-0" />
-                      <span>{event.date}</span>
+                      <span>{getEventDate(event)}</span>
                       {event.start_time && (
                         <span>· {formatTime(event.start_time)}{event.end_time ? ` – ${formatTime(event.end_time)}` : ''}</span>
                       )}

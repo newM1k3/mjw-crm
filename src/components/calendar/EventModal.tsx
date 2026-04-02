@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, MapPin, FileText, Link, User, Trash2 } from 'lucide-react';
+import { X, Calendar, Clock, MapPin, FileText, Link, Trash2 } from 'lucide-react';
 import { pb, ensureAuth } from '../../lib/pocketbase';
 import { useAuth } from '../../contexts/AuthContext';
 import { logActivity } from '../../lib/activity';
 import type { CalendarEvent } from './types';
+import { getEventDate } from './types';
 
 interface Client { id: string; name: string; company: string; }
 interface Contact { id: string; name: string; position: string; }
@@ -15,6 +16,20 @@ interface EventModalProps {
   onClose: () => void;
   onSaved: (event: CalendarEvent) => void;
   onDeleted?: (eventId: string) => void;
+}
+
+/** Combine a YYYY-MM-DD date string and HH:mm time string into a PocketBase datetime string. */
+function toISODatetime(date: string, time: string): string | null {
+  if (!date) return null;
+  const t = time || '00:00';
+  return `${date} ${t}:00.000Z`;
+}
+
+/** Extract HH:mm from a PocketBase datetime string like "2026-04-02 14:00:00.000Z" */
+function extractTime(dt: string | null | undefined): string {
+  if (!dt) return '';
+  const timePart = dt.includes('T') ? dt.split('T')[1] : dt.includes(' ') ? dt.split(' ')[1] : '';
+  return timePart ? timePart.slice(0, 5) : '';
 }
 
 const defaultForm = {
@@ -47,9 +62,10 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
     if (event) {
       setForm({
         title: event.title,
-        date: event.date,
-        start_time: event.start_time ? event.start_time.slice(0, 5) : '',
-        end_time: event.end_time ? event.end_time.slice(0, 5) : '',
+        // Derive the date from start_time (first 10 chars of "2026-04-02 14:00:00.000Z")
+        date: getEventDate(event),
+        start_time: extractTime(event.start_time),
+        end_time: extractTime(event.end_time),
         type: event.type,
         description: event.description || '',
         location: event.location || '',
@@ -61,16 +77,13 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
     }
 
     // Load clients and contacts for association dropdowns.
-    // PocketBase v0.21 getFullList() returns an array directly (not { data, error }).
     Promise.all([
       pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, sort: 'name' }),
       pb.collection('contacts').getFullList({ filter: `user_id = '${user.id}'`, sort: 'name' }),
     ]).then(([clientList, contactList]) => {
       setClients(clientList as Client[]);
       setContacts(contactList as Contact[]);
-    }).catch(() => {
-      // Non-critical — dropdowns will just be empty if this fails.
-    });
+    }).catch(() => {});
   }, [isOpen, event, initialDate, user]);
 
   if (!isOpen) return null;
@@ -84,20 +97,23 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (!form.date) { setError('Please select a date.'); return; }
     setSaving(true);
     setError('');
 
     try {
       await ensureAuth();
 
+      // PocketBase stores datetimes as "YYYY-MM-DD HH:mm:ss.sssZ".
+      // We combine the date picker value with the time picker value.
+      const startDatetime = toISODatetime(form.date, form.start_time);
+      const endDatetime = form.end_time ? toISODatetime(form.date, form.end_time) : null;
+
       const payload = {
         user_id: user.id,
         title: form.title,
-        date: form.date,
-        start_time: form.start_time || null,
-        end_time: form.end_time || null,
-        time: form.start_time || '',
-        duration: form.start_time && form.end_time ? `${form.start_time}–${form.end_time}` : '',
+        start_time: startDatetime,
+        end_time: endDatetime,
         type: form.type,
         description: form.description,
         location: form.location,
@@ -108,17 +124,15 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
       let savedEvent: CalendarEvent;
 
       if (event) {
-        // Update existing event
         savedEvent = await pb.collection('events').update(event.id, payload) as CalendarEvent;
       } else {
-        // Create new event
         savedEvent = await pb.collection('events').create(payload) as CalendarEvent;
 
         await logActivity({
           userId: user.id,
           type: 'event_added',
           title: `Event created: ${savedEvent.title}`,
-          description: savedEvent.date ? `on ${savedEvent.date}` : '',
+          description: form.date ? `on ${form.date}` : '',
           entityId: savedEvent.id,
           entityType: 'event',
         });
@@ -281,52 +295,64 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
 
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
-              <User className="w-3 h-3 inline mr-1" />Associated Contact
+              <Link className="w-3 h-3 inline mr-1" />Associated Contact
             </label>
             <select name="contact_id" value={form.contact_id} onChange={handleChange} className="md-outlined-input">
               <option value="">No contact</option>
               {contacts.map(c => (
-                <option key={c.id} value={c.id}>{c.name}{c.position ? ` — ${c.position}` : ''}</option>
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
           </div>
 
+          {event && (
+            <div className="pt-2 border-t border-gray-100">
+              {!confirmDelete ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-2 text-sm text-red-600 hover:text-red-700 transition-colors duration-200"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete Event
+                </button>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-600">Delete this event?</span>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleting ? 'Deleting...' : 'Yes, delete'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="px-3 py-1 text-xs font-medium text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
-            {event && !confirmDelete && (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                disabled={saving}
-                className="px-3 py-2.5 text-red-600 border border-red-200 text-sm font-medium rounded hover:bg-red-50 transition-colors duration-200 flex items-center gap-1.5 disabled:opacity-60"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete
-              </button>
-            )}
-            {event && confirmDelete && (
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleting || saving}
-                className="px-3 py-2.5 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 transition-colors duration-200 disabled:opacity-60 flex items-center gap-1.5"
-              >
-                {deleting ? 'Deleting...' : 'Confirm Delete'}
-              </button>
-            )}
             <button
               type="button"
               onClick={onClose}
-              disabled={saving || deleting}
-              className="flex-1 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded hover:bg-gray-50 transition-colors duration-200 disabled:opacity-60"
+              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded hover:bg-gray-50 transition-colors duration-200"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={saving || deleting}
-              className="flex-1 py-2.5 bg-primary-700 text-white text-sm font-medium rounded hover:bg-primary-800 transition-colors duration-200 disabled:opacity-60"
+              disabled={saving}
+              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary-700 rounded hover:bg-primary-800 disabled:opacity-50 transition-colors duration-200"
             >
-              {saving ? 'Saving...' : event ? 'Save Changes' : 'Create Event'}
+              {saving ? 'Saving...' : event ? 'Update Event' : 'Create Event'}
             </button>
           </div>
         </form>

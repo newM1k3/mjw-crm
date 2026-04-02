@@ -8,7 +8,7 @@ interface ActivityItem {
   type: string;
   title: string;
   description: string;
-  created_at: string;
+  created: string;
 }
 
 const activityTypeConfig: Record<string, { icon: React.FC<{ className?: string }>; bg: string; color: string }> = {
@@ -49,7 +49,7 @@ const ActivityFeed: React.FC = () => {
     if (!user) return;
     const fetch = async () => {
       setLoading(true);
-      const data = await pb.collection('activities').getList(1, 5, { filter: `user_id = '${user.id}'`, sort: '-created', fields: 'id, type, title, description, created_at' }).then(r => r.items).catch(() => []);
+      const data = await pb.collection('activities').getList(1, 5, { filter: `user_id = '${user.id}'`, sort: '-created', fields: 'id,type,title,description,created' }).then(r => r.items).catch(() => []);
       setActivities((data as ActivityItem[]) || []);
       setLoading(false);
     };
@@ -97,7 +97,7 @@ const ActivityFeed: React.FC = () => {
                   )}
                   <div className="flex items-center gap-1.5 mt-1.5">
                     <Clock className="w-3 h-3 text-gray-400" />
-                    <span className="text-xs text-gray-400">{formatRelativeTime(activity.created_at)}</span>
+                    <span className="text-xs text-gray-400">{formatRelativeTime(activity.created)}</span>
                   </div>
                 </div>
               </div>

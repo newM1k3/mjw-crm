@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarEvent, eventTypeConfig, shortDayNames, formatTime, toDateStr } from './types';
+import { CalendarEvent, eventTypeConfig, shortDayNames, formatTime, toDateStr, getEventDate } from './types';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -45,7 +45,7 @@ const WeekView: React.FC<WeekViewProps> = ({ weekStart, events, onDayClick, onEv
 
   const getEventsForDay = (d: Date) => {
     const ds = toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
-    return events.filter(e => e.date === ds);
+    return events.filter(e => getEventDate(e) === ds);
   };
 
   return (

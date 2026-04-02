@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarEvent, eventTypeConfig, dayNames, monthNames, formatTime, toDateStr } from './types';
+import { CalendarEvent, eventTypeConfig, dayNames, monthNames, formatTime, toDateStr, getEventDate } from './types';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -38,7 +38,7 @@ const DayView: React.FC<DayViewProps> = ({ currentDate, events, onHourClick, onE
   const todayStr = toDateStr(today.getFullYear(), today.getMonth(), today.getDate());
   const dateStr = toDateStr(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
   const isToday = dateStr === todayStr;
-  const dayEvents = events.filter(e => e.date === dateStr);
+  const dayEvents = events.filter(e => getEventDate(e) === dateStr);
 
   const nowMinutes = today.getHours() * 60 + today.getMinutes();
   const nowTop = (nowMinutes / 60) * 64;

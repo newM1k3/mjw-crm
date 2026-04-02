@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Calendar, Clock, MapPin, FileText, Link, User, CreditCard as Edit2, Trash2 } from 'lucide-react';
-import { CalendarEvent, eventTypeConfig, formatTime } from './types';
+import { CalendarEvent, eventTypeConfig, formatTime, getEventDate } from './types';
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
@@ -89,7 +89,7 @@ const EventDetailPanel: React.FC<EventDetailPanelProps> = ({
                 <div className="space-y-3">
                   <div className="flex items-start gap-3">
                     <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm text-gray-700">{formatDisplayDate(event.date)}</span>
+                    <span className="text-sm text-gray-700">{formatDisplayDate(getEventDate(event))}</span>
                   </div>
                   {(event.start_time || event.end_time) && (
                     <div className="flex items-center gap-3">

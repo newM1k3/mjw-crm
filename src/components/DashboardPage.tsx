@@ -32,7 +32,7 @@ interface ActivityItem {
   type: string;
   title: string;
   description: string;
-  created_at: string;
+  created: string;
 }
 
 type DashStatus = 'loading' | 'forbidden' | 'timeout' | 'error' | 'success';
@@ -457,7 +457,7 @@ const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0 text-xs text-gray-400 mt-0.5">
                       <Clock className="w-3 h-3" />
-                      <span>{formatRelativeTime(activity.created_at)}</span>
+                      <span>{formatRelativeTime(activity.created)}</span>
                     </div>
                   </div>
                 );
