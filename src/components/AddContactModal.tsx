@@ -51,7 +51,7 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
     setFormData({ name: '', email: '', phone: '', company: '', position: '', location: '', tags: [], client_id: '' });
     setError('');
     pb.collection('clients')
-      .getFullList({ filter: `user_id = "${user.id}"`, sort: 'name' })
+      .getFullList({ filter: `user_id = '${user.id}'`, sort: 'name' })
       .then(data => { if (data) setClients(data as Client[]); })
       .catch(() => {});
   }, [isOpen, user]);

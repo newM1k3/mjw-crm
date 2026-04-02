@@ -230,8 +230,10 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
       );
     }
 
-    // Empty database — no clients at all
-    if (fetchStatus === 'empty' && !hasFilters) {
+    // Empty database — no clients at all.
+    // Guard: if clients array already has data (e.g. optimistic add before re-fetch),
+    // skip the empty state and fall through to render the table.
+    if (fetchStatus === 'empty' && !hasFilters && clients.length === 0) {
       return (
         <EmptyState
           icon={Users}
@@ -386,12 +388,12 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
           <div>
             <h2 className="text-xl font-medium text-white">Clients</h2>
             <p className="text-sm text-blue-200 mt-0.5">
-              {fetchStatus === 'success' || (fetchStatus === 'empty' && hasFilters)
-                ? filteredAndSorted.length === clients.length
-                  ? `${clients.length} total`
-                  : `${filteredAndSorted.length} of ${clients.length}`
-                : fetchStatus === 'loading'
-                  ? 'Loading…'
+              {fetchStatus === 'loading'
+                ? 'Loading…'
+                : clients.length > 0
+                  ? filteredAndSorted.length === clients.length
+                    ? `${clients.length} total`
+                    : `${filteredAndSorted.length} of ${clients.length}`
                   : ''}
             </p>
           </div>
