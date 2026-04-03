@@ -199,7 +199,7 @@ export function useFetchState(): UseFetchStateReturn {
 
   const reset = useCallback(() => setStatus('idle'), []);
 
-  const run = useCallback(async <T>(fn: () => Promise<T>): Promise<T | null> => {
+  const run = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | null> => {
     setStatus('loading');
     try {
       const result = await Promise.race([
