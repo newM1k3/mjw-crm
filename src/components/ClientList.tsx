@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import AddClientModal from './AddClientModal';
 import TagChip from './TagChip';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
+import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/activity';
 import { useTagColors } from '../lib/useTags';
@@ -70,6 +71,7 @@ const SortIcon: React.FC<{ field: SortField; sortField: SortField; sortDir: Sort
 const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientId, registerRefresh }) => {
   const { user } = useAuth();
   const tagColors = useTagColors();
+  const { success: toastSuccess, error: toastError } = useToast();
   const [clients, setClients] = useState<Client[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [fetchStatus, setFetchStatus] = useState<FetchStatus>('loading');
@@ -113,6 +115,35 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
+  // ─── Real-time subscription ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+    let unsub: (() => void) | null = null;
+    pb.collection('clients').subscribe('*', (e) => {
+      const record = e.record as Client;
+      // Only process events for the current user's records
+      if (record.user_id !== user.id) return;
+      if (e.action === 'create') {
+        setClients(prev => {
+          // Avoid duplicates if optimistic update already added it
+          if (prev.some(c => c.id === record.id)) return prev;
+          return [record, ...prev];
+        });
+        setFetchStatus('success');
+        setAvailableTags(prev => {
+          const next = new Set(prev);
+          (record.tags || []).forEach(t => next.add(t));
+          return Array.from(next).sort();
+        });
+      } else if (e.action === 'update') {
+        setClients(prev => prev.map(c => c.id === record.id ? record : c));
+      } else if (e.action === 'delete') {
+        setClients(prev => prev.filter(c => c.id !== record.id));
+      }
+    }).then(fn => { unsub = fn; }).catch(() => {});
+    return () => { unsub?.(); };
+  }, [user]);
+
   useEffect(() => {
     if (registerRefresh && !registeredRef.current) {
       registeredRef.current = true;
@@ -121,11 +152,13 @@ const ClientList: React.FC<ClientListProps> = ({ onSelectClient, selectedClientI
   }, [registerRefresh, fetchClients]);
 
   const handleAddClient = (newClient: Client) => {
-    setClients(prev => [newClient, ...prev]);
+    // Optimistic update — subscription will deduplicate on arrival
+    setClients(prev => prev.some(c => c.id === newClient.id) ? prev : [newClient, ...prev]);
     setFetchStatus('success');
     newClient.tags?.forEach(t => {
       setAvailableTags(prev => prev.includes(t) ? prev : [...prev, t].sort());
     });
+    toastSuccess('Client added', `${newClient.name} has been saved successfully.`);
   };
 
   const handleSort = (field: SortField) => {

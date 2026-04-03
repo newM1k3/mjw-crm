@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Phone, Mail, MapPin, Building, MoreVertical, Star, Trash2, CreditCard as Edit2 } from 'lucide-react';
 import { pb } from '../lib/pocketbase';
+import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import AddContactModal from './AddContactModal';
 import EditContactModal from './EditContactModal';
@@ -32,6 +33,7 @@ const getAvatarColor = (name: string) => avatarColors[name.charCodeAt(0) % avata
 const ContactsPage: React.FC = () => {
   const { user } = useAuth();
   const tagColors = useTagColors();
+  const { success: toastSuccess } = useToast();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +63,33 @@ const ContactsPage: React.FC = () => {
 
   useEffect(() => { fetchContacts(); }, [user]);
 
+  // ─── Real-time subscription ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+    let unsub: (() => void) | null = null;
+    pb.collection('contacts').subscribe('*', (e) => {
+      const record = e.record as Contact;
+      if ((record as any).user_id !== user.id) return;
+      if (e.action === 'create') {
+        setContacts(prev => {
+          if (prev.some(c => c.id === record.id)) return prev;
+          return [record, ...prev];
+        });
+        setAvailableTags(prev => {
+          const next = new Set(prev);
+          (record.tags || []).forEach(t => next.add(t));
+          return Array.from(next).sort();
+        });
+      } else if (e.action === 'update') {
+        setContacts(prev => prev.map(c => c.id === record.id ? record : c));
+      } else if (e.action === 'delete') {
+        setContacts(prev => prev.filter(c => c.id !== record.id));
+        if (selectedContact?.id === record.id) setSelectedContact(null);
+      }
+    }).then(fn => { unsub = fn; }).catch(() => {});
+    return () => { unsub?.(); };
+  }, [user, selectedContact]);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -72,10 +101,12 @@ const ContactsPage: React.FC = () => {
   }, []);
 
   const handleAdded = (newContact: Contact) => {
-    setContacts(prev => [newContact, ...prev]);
+    // Optimistic update — subscription will deduplicate on arrival
+    setContacts(prev => prev.some(c => c.id === newContact.id) ? prev : [newContact, ...prev]);
     (newContact.tags || []).forEach(t => {
       setAvailableTags(prev => prev.includes(t) ? prev : [...prev, t].sort());
     });
+    toastSuccess('Contact added', `${newContact.name} has been saved successfully.`);
   };
 
   const handleSaved = (updated: Contact) => {
@@ -84,6 +115,7 @@ const ContactsPage: React.FC = () => {
     const tagSet = new Set<string>();
     [...contacts.map(c => c.id === updated.id ? updated : c)].forEach(c => (c.tags || []).forEach(t => tagSet.add(t)));
     setAvailableTags(Array.from(tagSet).sort());
+    toastSuccess('Contact updated', `${updated.name} has been saved successfully.`);
   };
 
   const handleDelete = async (contact: Contact) => {
@@ -92,6 +124,7 @@ const ContactsPage: React.FC = () => {
     if (selectedContact?.id === contact.id) setSelectedContact(null);
     setDeleteConfirmId(null);
     setOpenMenuId(null);
+    toastSuccess('Contact deleted', `${contact.name} has been removed.`);
   };
 
   const toggleStar = async (e: React.MouseEvent, id: string, current: boolean) => {

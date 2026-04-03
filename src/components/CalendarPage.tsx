@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Clock, MapPin, User, Link } from 'lucide-react';
 import { pb } from '../lib/pocketbase';
+import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CalendarEvent, eventTypeConfig, monthNames, shortDayNames, formatTime, toDateStr, getEventDate } from './calendar/types';
 import EventModal from './calendar/EventModal';
@@ -10,6 +11,7 @@ import DayView from './calendar/DayView';
 
 const CalendarPage: React.FC = () => {
   const { user } = useAuth();
+  const { success: toastSuccess } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<'month' | 'week' | 'day'>('month');
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -37,6 +39,31 @@ const CalendarPage: React.FC = () => {
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
+  // ─── Real-time subscription ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+    let unsub: (() => void) | null = null;
+    pb.collection('events').subscribe('*', (e) => {
+      const record = e.record as CalendarEvent;
+      if ((record as any).user_id !== user.id) return;
+      if (e.action === 'create') {
+        setEvents(prev => {
+          if (prev.some(ev => ev.id === record.id)) return prev;
+          return [...prev, record].sort((a, b) => getEventDate(a).localeCompare(getEventDate(b)));
+        });
+      } else if (e.action === 'update') {
+        setEvents(prev =>
+          prev.map(ev => ev.id === record.id ? record : ev)
+            .sort((a, b) => getEventDate(a).localeCompare(getEventDate(b)))
+        );
+      } else if (e.action === 'delete') {
+        setEvents(prev => prev.filter(ev => ev.id !== record.id));
+        if (detailEvent?.id === record.id) setDetailEvent(null);
+      }
+    }).then(fn => { unsub = fn; }).catch(() => {});
+    return () => { unsub?.(); };
+  }, [user, detailEvent]);
+
   useEffect(() => {
     if (!user) return;
     // PocketBase v0.21: getFullList() returns an array directly.
@@ -55,12 +82,17 @@ const CalendarPage: React.FC = () => {
     }).catch(() => {});
   }, [user]);
 
-  const handleSaved = (event: CalendarEvent) => {
+  const handleSaved = (event: CalendarEvent, isNew: boolean) => {
+    // Optimistic update — subscription will deduplicate on arrival
     setEvents(prev => {
-      const exists = prev.find(e => e.id === event.id);
-      const next = exists ? prev.map(e => e.id === event.id ? event : e) : [...prev, event];
+      if (isNew && prev.some(e => e.id === event.id)) return prev;
+      const next = isNew ? [...prev, event] : prev.map(e => e.id === event.id ? event : e);
       return next.sort((a, b) => getEventDate(a).localeCompare(getEventDate(b)));
     });
+    toastSuccess(
+      isNew ? 'Event created' : 'Event updated',
+      `"${event.title}" has been saved successfully.`
+    );
   };
 
   const handleDeleted = (eventId: string) => {

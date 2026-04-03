@@ -3,13 +3,16 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { AuthProvider } from './contexts/AuthContext.tsx';
 import { SettingsProvider } from './contexts/SettingsContext.tsx';
+import { ToastProvider } from './contexts/ToastContext.tsx';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
       <SettingsProvider>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </SettingsProvider>
     </AuthProvider>
   </StrictMode>

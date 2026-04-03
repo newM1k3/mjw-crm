@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, MapPin, FileText, Link, Trash2 } from 'lucide-react';
 import { pb, ensureAuth } from '../../lib/pocketbase';
+import { useToast } from '../../contexts/ToastContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { logActivity } from '../../lib/activity';
 import type { CalendarEvent } from './types';
@@ -14,7 +15,7 @@ interface EventModalProps {
   initialDate?: string;
   event?: CalendarEvent | null;
   onClose: () => void;
-  onSaved: (event: CalendarEvent) => void;
+  onSaved: (event: CalendarEvent, isNew: boolean) => void;
   onDeleted?: (eventId: string) => void;
 }
 
@@ -45,6 +46,7 @@ const defaultForm = {
 };
 
 const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onClose, onSaved, onDeleted }) => {
+  const { success: toastSuccess } = useToast();
   const { user } = useAuth();
   const [form, setForm] = useState({ ...defaultForm });
   const [clients, setClients] = useState<Client[]>([]);
@@ -138,7 +140,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
         });
       }
 
-      onSaved(savedEvent);
+      onSaved(savedEvent, !event);
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Failed to save event. Please try again.');
@@ -155,6 +157,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, initialDate, event, onC
     try {
       await ensureAuth();
       await pb.collection('events').delete(event.id);
+      toastSuccess('Event deleted', `"${event.title}" has been removed.`);
       onDeleted?.(event.id);
       onClose();
     } catch (err: any) {
