@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   EmptyState, PermissionDenied, TimedOut, FetchError,
 } from './ui/FetchState';
+import { formatTime } from './calendar/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,8 +22,8 @@ interface ClientCounts {
 interface UpcomingEvent {
   id: string;
   title: string;
-  date: string;
-  time: string;
+  start_time: string | null;
+  end_time: string | null;
   type: string;
   location: string;
 }
@@ -209,8 +210,8 @@ const DashboardPage: React.FC = () => {
         await Promise.race([
           Promise.all([
             pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, fields: 'status' }),
-            pb.collection('events').getList(1, 5, { filter: `user_id = '${user.id}' && date >= '${todayStr}' && date <= '${sevenDaysStr}'`, sort: 'date' }),
-            pb.collection('events').getList(1, 1, { filter: `user_id = '${user.id}' && date >= '${todayStr}' && date <= '${sevenDaysStr}'` }),
+            pb.collection('events').getList(1, 5, { filter: `user_id = '${user.id}' && start_time >= '${todayStr} 00:00:00' && start_time <= '${sevenDaysStr} 23:59:59'`, sort: 'start_time' }),
+            pb.collection('events').getList(1, 1, { filter: `user_id = '${user.id}' && start_time >= '${todayStr} 00:00:00' && start_time <= '${sevenDaysStr} 23:59:59'` }),
             pb.collection('activities').getList(1, 5, { filter: `user_id = '${user.id}'`, sort: '-created' }),
             pb.collection('contacts').getList(1, 1, { filter: `user_id = '${user.id}'` }),
           ]),
@@ -404,8 +405,8 @@ const DashboardPage: React.FC = () => {
                   return (
                     <div key={event.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors duration-150">
                       <div className="flex-shrink-0 text-center w-12">
-                        <p className="text-xs font-medium text-primary-700">{formatEventDate(event.date)}</p>
-                        {event.time && <p className="text-xs text-gray-400 mt-0.5">{event.time}</p>}
+                        <p className="text-xs font-medium text-primary-700">{formatEventDate(event.start_time ? event.start_time.slice(0, 10) : '')}</p>
+                        {event.start_time && <p className="text-xs text-gray-400 mt-0.5">{formatTime(event.start_time)}</p>}
                       </div>
                       <div className="w-px h-8 bg-gray-200 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
