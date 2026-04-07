@@ -114,7 +114,17 @@ function App() {
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard':
-        return <DashboardPage />;
+        return (
+          <DashboardPage
+            onEmailClient={(email) => { setPendingComposeEmail(email); setActiveSection('emails'); }}
+            onNavigate={(section) => setActiveSection(section)}
+            onViewClient={(clientId) => {
+              setActiveSection('clients');
+              // Select the client by fetching from PocketBase
+              pb.collection('clients').getOne(clientId).then((rec) => setSelectedClient(rec as any)).catch(() => {});
+            }}
+          />
+        );
       case 'clients':
         return (
           <>
@@ -139,7 +149,16 @@ function App() {
       case 'settings':
         return <SettingsPage />;
       default:
-        return <DashboardPage />;
+        return (
+          <DashboardPage
+            onEmailClient={(email) => { setPendingComposeEmail(email); setActiveSection('emails'); }}
+            onNavigate={(section) => setActiveSection(section)}
+            onViewClient={(clientId) => {
+              setActiveSection('clients');
+              pb.collection('clients').getOne(clientId).then((rec) => setSelectedClient(rec as any)).catch(() => {});
+            }}
+          />
+        );
     }
   };
 

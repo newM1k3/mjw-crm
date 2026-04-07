@@ -9,6 +9,8 @@ import {
   EmptyState, PermissionDenied, TimedOut, FetchError,
 } from './ui/FetchState';
 import { formatTime } from './calendar/types';
+import { buildPriorities, PriorityItem } from '../lib/priorities';
+import PrioritiesCard from './dashboard/PrioritiesCard';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -180,7 +182,13 @@ const StatCard: React.FC<StatCardProps> = ({ label, value, icon: Icon, iconBg, i
 
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
-const DashboardPage: React.FC = () => {
+interface DashboardPageProps {
+  onEmailClient: (email: string) => void;
+  onNavigate: (section: string) => void;
+  onViewClient: (clientId: string) => void;
+}
+
+const DashboardPage: React.FC<DashboardPageProps> = ({ onEmailClient, onNavigate, onViewClient }) => {
   // Gate on both `user` AND `loading` — if loading is still true, auth has not
   // been confirmed yet and we must not attempt any PocketBase fetches.
   const { user, loading: authLoading } = useAuth();
@@ -190,6 +198,7 @@ const DashboardPage: React.FC = () => {
   const [upcomingEventsCount, setUpcomingEventsCount] = useState(0);
   const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
   const [contactCount, setContactCount] = useState(0);
+  const [priorities, setPriorities] = useState<PriorityItem[]>([]);
   const [status, setStatus] = useState<DashStatus>('loading');
 
   const fetchAll = useCallback(async () => {
@@ -198,6 +207,9 @@ const DashboardPage: React.FC = () => {
 
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
+    const tomorrowDate = new Date(today);
+    tomorrowDate.setDate(today.getDate() + 1);
+    const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
     const sevenDaysLater = new Date(today);
     sevenDaysLater.setDate(today.getDate() + 7);
     const sevenDaysStr = sevenDaysLater.toISOString().split('T')[0];
@@ -206,14 +218,16 @@ const DashboardPage: React.FC = () => {
       // Race all five queries against a 10-second timeout.
       // PocketBase v0.21: getFullList() returns an array directly.
       // Use single-quoted filter values to prevent 400 Bad Request.
-      const [clientsArr, eventsPage, eventsCountPage, activitiesPage, contactsPage] =
+      const [clientsArr, eventsPage, eventsCountPage, activitiesPage, contactsPage, invoicesArr, todayTomorrowEvents] =
         await Promise.race([
           Promise.all([
-            pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, fields: 'status' }),
+            pb.collection('clients').getFullList({ filter: `user_id = '${user.id}'`, fields: 'id,name,email,company,status,last_contact,created' }),
             pb.collection('events').getList(1, 5, { filter: `user_id = '${user.id}' && start_time >= '${todayStr} 00:00:00' && start_time <= '${sevenDaysStr} 23:59:59'`, sort: 'start_time' }),
             pb.collection('events').getList(1, 1, { filter: `user_id = '${user.id}' && start_time >= '${todayStr} 00:00:00' && start_time <= '${sevenDaysStr} 23:59:59'` }),
             pb.collection('activities').getList(1, 5, { filter: `user_id = '${user.id}'`, sort: '-created' }),
             pb.collection('contacts').getList(1, 1, { filter: `user_id = '${user.id}'` }),
+            pb.collection('invoices').getFullList({ filter: `user_id = '${user.id}' && (status = 'Overdue' || status = 'Pending')` }),
+            pb.collection('events').getFullList({ filter: `user_id = '${user.id}' && client_id != '' && start_time >= '${todayStr} 00:00:00' && start_time <= '${tomorrowStr} 23:59:59'` }),
           ]),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('__TIMEOUT__')), TIMEOUT_MS)
@@ -234,6 +248,7 @@ const DashboardPage: React.FC = () => {
       if ((contactsPage as any)?.totalItems !== undefined) setContactCount((contactsPage as any).totalItems);
 
       setStatus('success');
+      setPriorities(buildPriorities(clientsArr as any[], invoicesArr as any[], todayTomorrowEvents as any[]));
     } catch (err: any) {
       if (err?.message === '__TIMEOUT__') {
         setStatus('timeout');
@@ -362,6 +377,15 @@ const DashboardPage: React.FC = () => {
           <StatCard label="Total Contacts" value={contactCount} icon={Phone} iconBg="bg-teal-100" iconColor="text-teal-600" />
           <StatCard label="Upcoming Events" value={upcomingEventsCount} icon={Calendar} iconBg="bg-orange-100" iconColor="text-orange-600" />
         </div>
+
+        {/* Today's Priorities */}
+        <PrioritiesCard
+          priorities={priorities}
+          loading={status !== 'success'}
+          onEmailClient={onEmailClient}
+          onNavigate={onNavigate}
+          onViewClient={onViewClient}
+        />
 
         {/* Charts row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
