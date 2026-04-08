@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Phone, Mail, MapPin, Building, MoreVertical, Star, Trash2, CreditCard as Edit2 } from 'lucide-react';
+import { Search, Plus, Phone, Mail, MapPin, Building, MoreVertical, Star, Trash2, CreditCard as Edit2, Upload } from 'lucide-react';
 import { pb } from '../lib/pocketbase';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -7,6 +7,7 @@ import AddContactModal from './AddContactModal';
 import EditContactModal from './EditContactModal';
 import ContactDetailPanel from './ContactDetailPanel';
 import ComposeModal from './email/ComposeModal';
+import ImportContactsModal from './contacts/ImportContactsModal';
 import TagChip from './TagChip';
 import { useTagColors } from '../lib/useTags';
 
@@ -42,6 +43,7 @@ const ContactsPage: React.FC = () => {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -159,13 +161,22 @@ const ContactsPage: React.FC = () => {
                 : `${filtered.length} of ${contacts.length}`}
             </p>
           </div>
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-white text-primary-700 text-sm font-medium rounded hover:bg-blue-50 transition-colors duration-200 md-ripple"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Contact</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white text-sm font-medium rounded hover:bg-white/20 transition-colors duration-200"
+            >
+              <Upload className="w-4 h-4" />
+              <span className="hidden sm:inline">Import</span>
+            </button>
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-primary-700 text-sm font-medium rounded hover:bg-blue-50 transition-colors duration-200 md-ripple"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Contact</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -370,6 +381,15 @@ const ContactsPage: React.FC = () => {
         contact={editContact}
         onClose={() => setEditContact(null)}
         onSaved={handleSaved}
+      />
+
+      <ImportContactsModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImported={(_count) => {
+          setIsImportModalOpen(false);
+          fetchContacts();
+        }}
       />
 
       {composeTo !== null && (
